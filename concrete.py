@@ -8,7 +8,7 @@ import src.gameplay as gameplay
 
 if __name__ == "__main__":
     screen = utils.make_fancy_scaled_display(
-        (320, 240),
+        const.GAME_DIMS,
         scale_factor=2.,
         extra_flags=pygame.RESIZABLE
     )
