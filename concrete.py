@@ -13,6 +13,8 @@ if __name__ == "__main__":
         extra_flags=pygame.RESIZABLE
     )
 
+    pygame.display.set_caption(const.NAME_OF_GAME)
+
     clock = pygame.time.Clock()
     dt = 0
 
@@ -23,6 +25,8 @@ if __name__ == "__main__":
     while running and not scene_manager.should_quit:
         const.KEYS_PRESSED_THIS_FRAME.clear()
         const.KEYS_RELEASED_THIS_FRAME.clear()
+        const.MOUSE_PRESSED_AT_THIS_FRAME.clear()
+        const.MOUSE_RELEASED_AT_THIS_FRAME.clear()
         for e in pygame.event.get():
             if e.type == pygame.QUIT:
                 running = False
@@ -33,6 +37,17 @@ if __name__ == "__main__":
                 const.KEYS_RELEASED_THIS_FRAME.add(e.key)
                 if e.key in const.KEYS_HELD_THIS_FRAME:
                     const.KEYS_HELD_THIS_FRAME.remove(e.key)
+            elif e.type == pygame.MOUSEMOTION:
+                const.MOUSE_XY = e.pos
+            elif e.type == pygame.MOUSEBUTTONDOWN:
+                const.MOUSE_PRESSED_AT_THIS_FRAME[e.button] = e.pos
+                const.MOUSE_BUTTONS_HELD_THIS_FRAME.add(e.button)
+            elif e.type == pygame.MOUSEBUTTONUP:
+                const.MOUSE_RELEASED_AT_THIS_FRAME[e.button] = e.pos
+                if e.button in const.MOUSE_BUTTONS_HELD_THIS_FRAME:
+                    const.MOUSE_BUTTONS_HELD_THIS_FRAME.remove(e.button)
+            elif e.type == pygame.WINDOWLEAVE:
+                const.MOUSE_XY = None
 
         scene_manager.update(dt)
         scene_manager.render(screen)

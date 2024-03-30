@@ -19,6 +19,9 @@ def compute(
     if len(points) < 3:
         return list(points)
 
+    # XXX this method can like... deadlock depending on point order T_T
+    points = sorted(points, key=lambda xy: (xy[1], xy[0]))
+
     res = []
     leftmost_idx = min((idx for idx in range(len(points))), key=lambda _idx: points[_idx][0])
     pivot_idx = leftmost_idx

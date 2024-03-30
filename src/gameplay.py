@@ -19,8 +19,9 @@ class GameState:
 class Board:
 
     def __init__(self, pegs: typing.List[typing.Tuple[float, float]]):
-        self.pegs = pegs
+        self.pegs = set(pegs)
         self.outer_edges = self._calc_outer_edges()
+        self.user_edges = EdgeSet()
 
     @staticmethod
     def new_board(style: str, size):
@@ -69,11 +70,118 @@ class Board:
 
     def _calc_outer_edges(self) -> 'EdgeSet':
         res = EdgeSet()
-        outer_pegs = convexhull.compute(self.pegs, include_colinear_edge_points=True)
+        outer_pegs = convexhull.compute(list(self.pegs), include_colinear_edge_points=True)
         for i in range(len(outer_pegs)):
             p1 = outer_pegs[i]
             p2 = outer_pegs[(i + 1) % len(outer_pegs)]
             res.add(Edge(p1, p2))
+        return res
+
+    def try_to_split(self, edge):
+        pts_inside = [edge.p1]
+        for pt in self.all_nodes():
+            if edge.contains_point(pt, including_endpoints=False):
+                pts_inside.append(pt)
+        pts_inside.append(edge.p2)
+        if len(pts_inside) == 2:
+            return [edge]
+        else:
+            pts_inside.sort(key=lambda x: utils.dist(edge.p1, x))
+            res = []
+            for i in range(len(pts_inside) - 1):
+                res.append(Edge(pts_inside[i], pts_inside[i + 1]))
+            return res
+
+    def can_add_user_edge(self, edge, split_if_necessary=True, get_problems=False):
+        split_edges = self.try_to_split(edge) if split_if_necessary else [edge]
+        problems = {}
+
+        def add_problem(key, edge_val):
+            if key not in problems:
+                problems[key] = EdgeSet()
+            if isinstance(edge_val, Edge):
+                problems[key].add(edge_val)
+            else:
+                problems[key].add_all(edge_val)
+
+        if edge.p1 not in self.pegs or edge.p2 not in self.pegs:
+            if not get_problems:
+                return False
+            else:
+                add_problem('invalid_endpoint', edge)
+
+        for edge in split_edges:
+            if edge in self.user_edges:
+                if not get_problems:
+                    return False
+                else:
+                    add_problem('overlaps', edge)
+            if edge in self.outer_edges:
+                if not get_problems:
+                    return False
+                else:
+                    add_problem('overlaps_outer', edge)
+
+            if any(edge.intersects(e) for e in self.user_edges):
+                if not get_problems:
+                    return False
+                else:
+                    add_problem('intersects', [e for e in self.user_edges if edge.intersects(e)])
+
+        if get_problems:
+            return problems
+        else:
+            return True
+
+    def add_user_edge(self, edge: 'Edge', split_if_necessary=True) -> bool:
+        split_edges = self.try_to_split(edge) if split_if_necessary else [edge]
+
+        if all(self.can_add_user_edge(e, split_if_necessary=False) for e in split_edges):
+            self.user_edges.add_all(split_edges)
+            return True
+        else:
+            return False
+
+    def can_remove_user_edge(self, edge: 'Edge') -> bool:
+        # TODO can't remove if it's holding concrete
+        return edge in self.user_edges
+
+    def remove_user_edge(self, edge: 'Edge') -> bool:
+        if self.can_remove_user_edge(edge):
+            self.user_edges.remove(edge)
+            return True
+        return False
+
+    def get_closest_edge(self, xy, max_dist=float('inf'), including_outer=True):
+        in_range = self.get_edges_in_circle(xy, radius=max_dist, including_outer=including_outer)
+        return in_range[0] if len(in_range) > 0 else None
+
+    def get_edges_in_circle(self, xy, radius, including_outer=True):
+        res = []
+        for edge in self.all_edges(including_outer=including_outer):
+            if edge.dist_to_point(xy) <= radius:
+                res.append(edge)
+        res.sort(key=lambda x: x.dist_to_point(xy))
+        return res
+
+    def all_edges(self, including_outer=True):
+        for e in self.user_edges:
+            yield e
+        if including_outer:
+            for e in self.outer_edges:
+                yield e
+
+    def get_closest_node(self, xy, max_dist=float('inf')):
+        # TODO not very efficient
+        all_in_range = self.get_nodes_in_circle(xy, max_dist)
+        return all_in_range[0] if len(all_in_range) > 0 else None
+
+    def get_nodes_in_circle(self, xy, radius):
+        res = []
+        for n in self.all_nodes():
+            if utils.dist(xy, n) <= radius:
+                res.append(n)
+        res.sort(key=lambda x: utils.dist(xy, x))
         return res
 
     def all_nodes(self):
@@ -89,12 +197,44 @@ class Edge:
     def points(self):
         return (self.p1, self.p2)
 
+    def contains_point(self, pt, including_endpoints=False):
+        dist = self.dist_to_point(pt)
+        if dist < const.THRESH:
+            if including_endpoints:
+                return True
+            else:
+                dist_p1 = utils.dist(pt, self.p1)
+                dist_p2 = utils.dist(pt, self.p2)
+                return dist_p1 > const.THRESH and dist_p2 > const.THRESH
+
+    def dist_to_point(self, pt):
+        return utils.dist_from_point_to_line(pt, self.p1, self.p2, segment=True)
+
+    def intersects(self, other: 'Edge'):
+        xy = utils.line_line_intersection(self.p1, self.p2, other.p1, other.p2)
+        if xy is None:
+            return (self.contains_point(other.p1) or self.contains_point(other.p2) or  # lines are parallel
+                    other.contains_point(self.p1) or other.contains_point(self.p2))
+
+        if (utils.dist_from_point_to_line(xy, self.p1, self.p2, segment=True) > const.THRESH
+                or utils.dist_from_point_to_line(xy, other.p1, other.p2, segment=True) > const.THRESH):
+            return False  # intersect must be inside both edges
+
+        if not min(utils.dist(xy, self.p1), utils.dist(xy, self.p2),
+                   utils.dist(xy, other.p1), utils.dist(xy, other.p2)) > const.THRESH:
+            return False  # intersect must not be at any endpoints
+
+        return True
+
     def __eq__(self, other):
         return (self.p1 == other.p1 and self.p2 == other.p2) \
             or (self.p2 == other.p1 and self.p1 == other.p2)
 
     def __hash__(self):
         return hash(self.p1) + hash(self.p2)
+
+    def __repr__(self):
+        return f"{type(self).__name__}(({self.p1[0]:.2f}, {self.p1[1]:.2f}), ({self.p2[0]:.2f}, {self.p2[1]:.2f}))"
 
 class EdgeSet:
 
@@ -142,6 +282,8 @@ class EdgeSet:
     def __iter__(self):
         return self.edges.__iter__()
 
+    def __repr__(self):
+        return f"{type(self).__name__}{tuple(self.edges)}"
 
 class GameplayScene(scenes.Scene):
 
@@ -154,6 +296,9 @@ class GameplayScene(scenes.Scene):
 
         self.board_style_idx = 0
 
+        self.potential_edge = None  # edge that's being dragged
+        self.potential_edge_problems = {}
+
     def update(self, dt):
         super().update(dt)
 
@@ -162,37 +307,154 @@ class GameplayScene(scenes.Scene):
             style = const.BOARD_STYLES[self.board_style_idx % len(const.BOARD_STYLES)]
             print(f"INFO: activating new board style {style}")
             self.gs = GameState(style)
+            self.cancel_current_drag()
+
+        self.handle_board_mouse_events()
+
+    def cancel_current_drag(self):
+        self.potential_edge = None
+        self.potential_edge_problems = {}
+
+    def handle_board_mouse_events(self):
+        click_dist = self.screen_dist_to_board_dist(const.CLICK_DISTANCE_PX)
+        if self.potential_edge is not None:
+            if pygame.BUTTON_RIGHT in const.MOUSE_PRESSED_AT_THIS_FRAME:
+                # TODO sound effect (drag cancelled)
+                self.cancel_current_drag()
+            elif pygame.BUTTON_LEFT in const.MOUSE_RELEASED_AT_THIS_FRAME:
+                scr_xy = const.MOUSE_RELEASED_AT_THIS_FRAME[pygame.BUTTON_LEFT]
+                b_xy = self.screen_xy_to_board_xy(scr_xy)
+                dest_node = self.gs.board.get_closest_node(b_xy, max_dist=click_dist)
+                if dest_node is None:
+                    # TODO sound effect (drag cancelled)
+                    self.cancel_current_drag()
+                else:
+                    new_edge = Edge(self.potential_edge.p1, dest_node)
+                    added = self.gs.board.add_user_edge(new_edge)
+                    if added:
+                        pass  # TODO sound effect (added new edge)
+                    else:
+                        # TODO sound effect (failed to add edge)
+                        if const.AUTO_REMOVE_IF_INTERSECTING:
+                            problems = self.gs.board.can_add_user_edge(new_edge, get_problems=True)
+                            if len(problems) == 1 and 'intersects' in problems:
+                                to_auto_rm = problems['intersects']
+                                if all(self.gs.board.can_remove_user_edge(e) for e in to_auto_rm):
+                                    print(f"INFO: auto-removing edges {to_auto_rm} to add {new_edge}")
+                                    for e in to_auto_rm:
+                                        if not self.gs.board.remove_user_edge(e):
+                                            raise ValueError(f"Failed to remove edge {e} even though "
+                                                             f"can_remove_user_edge said we could?")
+                                    if not self.gs.board.add_user_edge(new_edge):
+                                        raise ValueError(f"Failed to add edge {e} even though "
+                                                         f"we removed everything it intersected with?")
+                    self.cancel_current_drag()  # reset drag state
+
+        elif pygame.BUTTON_LEFT in const.MOUSE_PRESSED_AT_THIS_FRAME:
+            scr_xy = const.MOUSE_PRESSED_AT_THIS_FRAME[pygame.BUTTON_LEFT]
+            b_xy = self.screen_xy_to_board_xy(scr_xy)
+            start_node = self.gs.board.get_closest_node(b_xy, max_dist=click_dist)
+            if start_node is not None:
+                # TODO sound effect (started dragging)
+                self.potential_edge = Edge(start_node, b_xy)
+        elif pygame.BUTTON_RIGHT in const.MOUSE_PRESSED_AT_THIS_FRAME:
+            scr_xy = const.MOUSE_PRESSED_AT_THIS_FRAME[pygame.BUTTON_RIGHT]
+            b_xy = self.screen_xy_to_board_xy(scr_xy)
+            edge = self.gs.board.get_closest_edge(b_xy, max_dist=click_dist, including_outer=False)
+            if edge is not None:
+                # TODO sound effect
+                self.gs.board.remove_user_edge(edge)
+
+        if self.potential_edge is not None:
+            b_xy = self.screen_xy_to_board_xy(const.MOUSE_XY)
+            dest_node = self.gs.board.get_closest_node(b_xy, max_dist=click_dist)
+            if dest_node is None or dest_node == self.potential_edge.p1:
+                self.potential_edge = Edge(self.potential_edge.p1, b_xy)
+            else:
+                self.potential_edge = Edge(self.potential_edge.p1, dest_node)
+
+            self.potential_edge_problems = self.gs.board.can_add_user_edge(self.potential_edge, get_problems=True)
+        else:
+            self.potential_edge_problems = {}
 
     def board_xy_to_screen_xy(self, board_xy):
+        if board_xy is None:
+            return None
         return (int(self.board_area[0] + board_xy[0] * self.board_area[2]),
                 int(self.board_area[1] + board_xy[1] * self.board_area[3]))
 
     def screen_xy_to_board_xy(self, screen_xy):
+        if screen_xy is None:
+            return None
         return ((screen_xy[0] - self.board_area[0]) / self.board_area[2],
                 (screen_xy[1] - self.board_area[1]) / self.board_area[3])
+
+    def screen_dist_to_board_dist(self, px):
+        return px / self.board_area[2]
+
+    def board_dist_to_screen_dist(self, dist):
+        return dist * self.board_area[2]
 
     def _shorten_line(self, p1, p2, px):
         mag = utils.dist(p1, p2)
         center = utils.lerp(p1, p2, 0.5)
+        if mag < px:
+            return center, center
         v1 = utils.set_length(utils.sub(p1, center), mag / 2 - px / 2)
         v2 = utils.set_length(utils.sub(p2, center), mag / 2 - px / 2)
         return (utils.add(v1, center), utils.add(v2, center))
 
+    def _render_edge(self, surf, edge, color, width=1):
+        p1 = self.board_xy_to_screen_xy(edge.p1)
+        p2 = self.board_xy_to_screen_xy(edge.p2)
+        p1, p2 = self._shorten_line(p1, p2, 16)
+
+        if p1 == p2:
+            return
+
+        pygame.draw.line(surf, color, p1, p2, width=width)
+
     def render(self, surf: pygame.Surface):
         pygame.draw.rect(surf, colors.BLACK, self.board_area)  # background
 
-        for edge in self.gs.board.outer_edges:  # outline
-            p1 = self.board_xy_to_screen_xy(edge.p1)
-            p2 = self.board_xy_to_screen_xy(edge.p2)
-            p1, p2 = self._shorten_line(p1, p2, 16)
+        color_overrides = {}  # Edge -> color
+        if self.potential_edge is not None:
+            for key in self.potential_edge_problems:
+                for e_val in self.potential_edge_problems[key]:
+                    color_overrides[e_val] = colors.REDS[4]
 
-            pygame.draw.line(surf, colors.BOARD_LINE_COLOR, p1, p2, width=1)
+        for edge in self.gs.board.outer_edges:  # outline
+            color = color_overrides[edge] if edge in color_overrides else colors.BOARD_LINE_COLOR
+            self._render_edge(surf, edge, color, width=1)
+
+        for edge in self.gs.board.user_edges:
+            color = color_overrides[edge] if edge in color_overrides else colors.WHITE
+            self._render_edge(surf, edge, color, width=3)
+
+        if self.potential_edge is not None:
+            if len(self.potential_edge_problems) is None:
+                color = colors.WHITE
+            elif 'overlaps' in self.potential_edge_problems:
+                color = colors.REDS[3]
+            elif 'overlaps_outer' in self.potential_edge_problems:
+                color = colors.REDS[3]
+            elif 'intersects' in self.potential_edge_problems:
+                color = colors.REDS[3]
+            else:
+                color = colors.LIGHT_GRAY
+            self._render_edge(surf, self.potential_edge, color, width=3)
 
         for peg in self.gs.board.pegs:  # nodes
             pygame.draw.circle(surf, colors.BOARD_LINE_COLOR, self.board_xy_to_screen_xy(peg), 4)
 
     def get_bg_color(self):
         return colors.DARK_GRAY
+
+
+if __name__ == "__main__":
+    e1 = Edge((0.00, 0.67), (0.33, 0.33))
+    e2 = Edge((0.33, 0.67), (0.67, 1.00))
+    print(e1.intersects(e2))
 
 
 
