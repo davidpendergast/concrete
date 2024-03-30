@@ -2,8 +2,8 @@ import pygame
 import const
 
 import src.scenes as scenes
-
 import src.utils as utils
+import src.gameplay as gameplay
 
 
 if __name__ == "__main__":
@@ -16,7 +16,8 @@ if __name__ == "__main__":
     clock = pygame.time.Clock()
     dt = 0
 
-    scene_manager = scenes.SceneManager(scenes.Scene())
+    gs = gameplay.GameState()
+    scene_manager = scenes.SceneManager(gameplay.GameplayScene(gs))
 
     running = True
     while running and not scene_manager.should_quit:
@@ -37,4 +38,3 @@ if __name__ == "__main__":
         scene_manager.render(screen)
 
         pygame.display.flip()
-        
