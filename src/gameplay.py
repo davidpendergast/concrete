@@ -1,15 +1,19 @@
+import math
 import typing
+import random
 
 import const
 import src.convexhull as convexhull
+import src.utils as utils
 
 import pygame
 import src.scenes as scenes
 import src.colors as colors
 
 class GameState:
-    def __init__(self):
-        self.board = Board.new_square_board((4, 4))
+
+    def __init__(self, style=const.BOARD_STYLES[0]):
+        self.board = Board.new_board(*style)
 
 
 class Board:
@@ -19,16 +23,53 @@ class Board:
         self.outer_edges = self._calc_outer_edges()
 
     @staticmethod
-    def new_square_board(dims: typing.Tuple[int, int]):
+    def new_board(style: str, size):
+        if style == "SQUARE":
+            return Board.new_rectangle_board((size, size))
+        if style == "RECT":
+            return Board.new_rectangle_board(size)
+        if style == "HEX":
+            return Board.new_hex_board(size)
+
+    @staticmethod
+    def new_rectangle_board(dims: typing.Tuple[int, int]):
         pegs = []
+
+        width = 1
+        height = 1
+        if dims[0] < dims[1]:
+            width = (dims[0] - 1) / (dims[1] - 1)
+        elif dims[1] < dims[0]:
+            height = (dims[1] - 1) / (dims[0] - 1)
+
         for x_idx in range(dims[0]):
             for y_idx in range(dims[1]):
-                pegs.append((x_idx / (dims[0]-1), y_idx / (dims[1]-1)))
+                x = (x_idx / (dims[0] - 1)) * width + (1 - width) / 2
+                y = (y_idx / (dims[1] - 1)) * height + (1 - height) / 2
+                pegs.append((x, y))
+        return Board(pegs)
+
+    @staticmethod
+    def new_hex_board(size):
+        rows, cols = size
+        if rows % 2 == 0:
+            raise ValueError(f"rows must be odd: {rows}")
+        board_height = (rows - 1) / (cols - 1) * math.sqrt(3) / 2
+        pegs = []
+        for y in range(rows):
+            n_pts_in_row = cols - int(abs(y - (rows - 1) / 2))
+            y_pos = y / (rows - 1) * board_height + (1 - board_height) / 2
+            if n_pts_in_row > 0:
+                row_total_width = (n_pts_in_row - 1) / (cols - 1)
+                x_start = 0.5 - row_total_width / 2
+                x_spacing = 1 / (cols - 1)
+                for x in range(n_pts_in_row):
+                    pegs.append((x_start + x * x_spacing, y_pos))
         return Board(pegs)
 
     def _calc_outer_edges(self) -> 'EdgeSet':
         res = EdgeSet()
-        outer_pegs = convexhull.compute(self.pegs)
+        outer_pegs = convexhull.compute(self.pegs, include_colinear_edge_points=True)
         for i in range(len(outer_pegs)):
             p1 = outer_pegs[i]
             p2 = outer_pegs[(i + 1) % len(outer_pegs)]
@@ -111,8 +152,16 @@ class GameplayScene(scenes.Scene):
                            (const.GAME_DIMS[1] - const.BOARD_SIZE) / 2,
                            const.BOARD_SIZE, const.BOARD_SIZE]
 
+        self.board_style_idx = 0
+
     def update(self, dt):
         super().update(dt)
+
+        if pygame.K_r in const.KEYS_PRESSED_THIS_FRAME:
+            self.board_style_idx += 1
+            style = const.BOARD_STYLES[self.board_style_idx % len(const.BOARD_STYLES)]
+            print(f"INFO: activating new board style {style}")
+            self.gs = GameState(style)
 
     def board_xy_to_screen_xy(self, board_xy):
         return (int(self.board_area[0] + board_xy[0] * self.board_area[2]),
@@ -122,16 +171,25 @@ class GameplayScene(scenes.Scene):
         return ((screen_xy[0] - self.board_area[0]) / self.board_area[2],
                 (screen_xy[1] - self.board_area[1]) / self.board_area[3])
 
+    def _shorten_line(self, p1, p2, px):
+        mag = utils.dist(p1, p2)
+        center = utils.lerp(p1, p2, 0.5)
+        v1 = utils.set_length(utils.sub(p1, center), mag / 2 - px / 2)
+        v2 = utils.set_length(utils.sub(p2, center), mag / 2 - px / 2)
+        return (utils.add(v1, center), utils.add(v2, center))
+
     def render(self, surf: pygame.Surface):
-        for edge in self.gs.board.outer_edges:
+        pygame.draw.rect(surf, colors.BLACK, self.board_area)  # background
+
+        for edge in self.gs.board.outer_edges:  # outline
             p1 = self.board_xy_to_screen_xy(edge.p1)
             p2 = self.board_xy_to_screen_xy(edge.p2)
-            pygame.draw.line(surf, colors.LIGHT_GRAY, p1, p2, width=2)
+            p1, p2 = self._shorten_line(p1, p2, 16)
 
-        for peg in self.gs.board.pegs:
-            pygame.draw.circle(surf, colors.WHITE, self.board_xy_to_screen_xy(peg), 3)
+            pygame.draw.line(surf, colors.BOARD_LINE_COLOR, p1, p2, width=1)
 
-
+        for peg in self.gs.board.pegs:  # nodes
+            pygame.draw.circle(surf, colors.BOARD_LINE_COLOR, self.board_xy_to_screen_xy(peg), 4)
 
     def get_bg_color(self):
         return colors.DARK_GRAY

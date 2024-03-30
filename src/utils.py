@@ -3,7 +3,7 @@ import typing
 import pygame
 import pygame._sdl2 as sdl2
 
-import sys, os
+import sys, os, math
 
 
 # from (my own) https://github.com/davidpendergast/pygame-utils/blob/main/rainbowize.py
@@ -68,26 +68,39 @@ def make_fancy_scaled_display(
 
     return res
 
-
-def lerp(start, end, t, clamp=True):
-    lower = min(start, end)
-    upper = max(start, end)
-    return max(lower, min(upper, start + t * (end - start)))
-
-
 def int_mults(v, a):
     return tuple(int(v[i] * a) for i in range(len(v)))
 
 def int_sub(v1, v2):
     return tuple(int(v1[i] - v2[i]) for i in range(len(v1)))
 
+def sub(v1, v2):
+    return tuple(v1[i] - v2[i] for i in range(len(v1)))
+
+def add(v1, v2):
+    return tuple(v1[i] + v2[i] for i in range(len(v1)))
+
+def mult(v, a):
+    return tuple(v[i] * a for i in range(len(v)))
+
+def lerp(start, end, t, clamp=True):
+    if (isinstance(start, (float, int))):
+        val = start + t * (end - start)
+        if clamp:
+            lower = min(start, end)
+            upper = max(start, end)
+            return max(lower, min(upper, val))
+        else:
+            return val
+    else:
+        return tuple(lerp(start[i], end[i], t, clamp=clamp) for i in range(len(start)))
 
 def int_lerp(i1, i2, t):
     return round(i1 + t * (i2 - i1))
 
 
-def int_lerps(v1, v2, t):
-    return tuple(int_lerp(v1[i], v2[i], t) for i in range(len(v1)))
+def int_lerps(v1, v2, t, clamp=True):
+    return tuple(int_lerp(v1[i], v2[i], t, clamp=clamp) for i in range(len(v1)))
 
 
 def tint_color(c1, c2, strength, max_shift=255):
@@ -101,6 +114,21 @@ def tint_color(c1, c2, strength, max_shift=255):
 def dist2(p1, p2):
     return (p1[0] - p2[0]) * (p1[0] - p2[0]) + (p1[1] - p2[1]) * (p1[1] - p2[1])
 
+def dist(p1, p2):
+    return math.sqrt(dist2(p1, p2))
+
+
+def mag(v):
+    return dist(v, (0,) * len(v))
+
+
+def set_length(v, a):
+    m = mag(v)
+    if m == 0:
+        return (a,) + (0,) * (len(v) - 1)
+    else:
+        return mult(v, a / m)
+
 
 def bounding_box(pts):
     min_x = float('inf')
@@ -113,6 +141,119 @@ def bounding_box(pts):
         min_y = min(y, min_y)
         max_y = max(y, max_y)
     return (min_x, min_y, max_x - min_x, max_y - min_y)
+
+
+def circle_contains(center, radius, pt):
+    return dist(center, pt) <= radius
+
+
+def dot_prod(p1, p2):
+    if isinstance(p1, int) or isinstance(p1, float):
+        return p1 * p2
+    else:
+        return sum(i1 * i2 for (i1, i2) in zip(p1, p2))
+
+
+def cross_prod(v1, v2):
+    a1 = v1[0] if len(v1) >= 1 else 0
+    a2 = v1[1] if len(v1) >= 2 else 0
+    a3 = v1[2] if len(v1) >= 3 else 0
+
+    b1 = v2[0] if len(v2) >= 1 else 0
+    b2 = v2[1] if len(v2) >= 2 else 0
+    b3 = v2[2] if len(v2) >= 3 else 0
+
+    return (det2x2(a2, a3, b2, b3),
+            -det2x2(a1, a3, b1, b3),
+            det2x2(a1, a2, b1, b2))
+
+
+def dist_from_point_to_line(p, l1, l2, segment=False):
+    return mag(vector_from_point_to_line(p, l1, l2, segment=segment))
+
+
+def vector_from_point_to_line(p, l1, l2, segment=False):
+    if l1 == l2:
+        return sub(p, l1)  # kind of a lie, if segment == False
+    else:
+        a = l1
+        n = set_length(sub(l2, a), 1)  # unit vector along line
+
+        # copied from wikipedia "Distance from a point to a line: Vector formulation"
+        a_minus_p = sub(a, p)
+        n_with_a_useful_length = set_length(n, dot_prod(a_minus_p, n))
+        vec_to_line = sub(a_minus_p, n_with_a_useful_length)
+
+        if segment:
+            pt_on_line = add(p, vec_to_line)
+            if (dot_prod(sub(pt_on_line, l1), sub(l2, l1)) > 0 and
+                    dot_prod(sub(pt_on_line, l2), sub(l1, l2)) > 0):
+                return vec_to_line  # the closest point is between the two end points
+            else:
+                if dist(l1, p) < dist(l2, p):  # otherwise choose the closer endpoint
+                    return sub(l1, p)
+                else:
+                    return sub(l2, p)
+
+
+def det2x2(a, b, c, d):
+    return a * d - b * c
+
+
+def line_line_intersection(xy1, xy2, xy3, xy4):
+    x1, y1 = xy1
+    x2, y2 = xy2
+    x3, y3 = xy3
+    x4, y4 = xy4
+
+    det = det2x2
+
+    denominator = det(
+        det(x1,  1, x2, 1),
+        det(y1,  1, y2, 1),
+        det(x3,  1, x4, 1),
+        det(y3,  1, y4, 1)
+    )
+
+    if denominator == 0:
+        # lines are parallel
+        return None
+
+    p_x_numerator = det(
+        det(x1, y1, x2, y2),
+        det(x1,  1, x2,  1),
+        det(x3, y3, x4, y4),
+        det(x3,  1, x4,  1)
+    )
+
+    p_y_numerator = det(
+        det(x1, y1, x2, y2),
+        det(y1,  1, y2, 1),
+        det(x3, y3, x4, y4),
+        det(y3,  1, y4, 1)
+    )
+
+    return (p_x_numerator / denominator,
+            p_y_numerator / denominator)
+
+
+def projection(v1, v2):
+    """finds the vector projection of v1 onto v2, or None if it doesn't exist"""
+    v2_mag = mag(v2)
+    if v2_mag == 0:
+        return None
+    else:
+        v1_dot_v2 = dot_prod(v1, v2)
+        return set_length(v2, v1_dot_v2 / v2_mag)
+
+
+def rejection(v1, v2):
+    """finds the vector rejection of v1 onto v2, or None if it doesn't exist"""
+    proj_v1_onto_v2 = projection(v1, v2)
+    if proj_v1_onto_v2 is None:
+        return None
+    else:
+        return sub(v1, proj_v1_onto_v2)
 
 
 def time_to_str(seconds=0., minutes=0., hours=0.,  # NOQA

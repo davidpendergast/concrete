@@ -11,7 +11,11 @@ def orientation(pivot, q, r) -> str:
     else:
         return 'cw' if val > 0 else 'ccw'
 
-def compute(points: typing.List[typing.Tuple[float, float]]) -> typing.List[typing.Tuple[float, float]]:
+def compute(
+        points: typing.List[typing.Tuple[float, float]],
+        include_colinear_edge_points=False
+) -> typing.List[typing.Tuple[float, float]]:
+
     if len(points) < 3:
         return list(points)
 
@@ -28,10 +32,11 @@ def compute(points: typing.List[typing.Tuple[float, float]]) -> typing.List[typi
             ori = orientation(points[pivot_idx], points[i], points[next_idx])
             if ori == 'ccw':
                 next_idx = i
-            elif ori == 'col':
-                if utils.dist2(points[pivot_idx], points[i]) > utils.dist2(points[pivot_idx], points[next_idx]):
-                    # If they're colinear, take the point that's farther away.
-                    # This will eliminate extraneous edge points from the hull.
+            elif ori == 'col':  # they're co-linear, can choose whether to take point or not
+                pivot_to_i_dist2 = utils.dist2(points[pivot_idx], points[i])
+                pivot_to_next_dist2 = utils.dist2(points[pivot_idx], points[next_idx])
+                if pivot_to_i_dist2 > pivot_to_next_dist2:
+                    # Take farther point.
                     next_idx = i
 
         pivot_idx = next_idx  # continue from new pivot
@@ -40,4 +45,33 @@ def compute(points: typing.List[typing.Tuple[float, float]]) -> typing.List[typi
         if (pivot_idx == leftmost_idx):
             break
 
-    return [points[idx] for idx in res]
+    res = [points[idx] for idx in res]
+
+    if include_colinear_edge_points:
+        res = _insert_colinear_edge_points(res, points)
+
+    return res
+
+def _insert_colinear_edge_points(hull, points):
+    in_hull_already = set(hull)
+    res = []
+    for i in range(len(hull)):
+        e1 = hull[i]
+        e2 = hull[(i + 1) % len(hull)]
+
+        colinears = []
+        for p in points:
+            if p in in_hull_already:
+                continue
+            elif utils.dist_from_point_to_line(p, e1, e2, segment=True) < 0.0001:
+                colinears.append(p)
+
+        colinears.sort(key=lambda x: utils.dist(e1, x))
+
+        res.append(e1)
+        res.extend(colinears)
+        in_hull_already.update(colinears)
+
+    return res
+
+
