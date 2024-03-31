@@ -11,7 +11,7 @@ BOARD_STYLES = [
     ("SQUARE", 5),
     ("RECT", (3, 5)),
     ("RECT", (4, 3)),
-    ("HEX", (5, 5)),
+    ("HEX", (5, 5)),  # small_edge_bias=0.5, pcnt_edges_to_try=0.2
     ("HEX", (3, 3)),
     ("HEX", (3, 5))
 ]
@@ -29,4 +29,5 @@ MOUSE_BUTTONS_HELD_THIS_FRAME = set()
 
 CLICK_DISTANCE_PX = 8
 AUTO_REMOVE_IF_INTERSECTING = True
+SHOW_POLYGONS = True
 

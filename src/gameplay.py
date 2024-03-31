@@ -10,19 +10,28 @@ import pygame
 import src.scenes as scenes
 import src.colors as colors
 import src.geometry as geometry
+import src.goals as goals
 
 class GameState:
 
     def __init__(self, style=const.BOARD_STYLES[0]):
         self.board = Board.new_board(*style)
+        self.goal_generator = goals.GoalGenerator(self.board, goals.GoalGenParams())
+        self.goals = []
 
 
 class Board:
 
-    def __init__(self, pegs: typing.List[typing.Tuple[float, float]]):
+    def __init__(self, pegs: typing.Iterable[typing.Tuple[float, float]]):
         self.pegs = set(pegs)
         self.outer_edges = self._calc_outer_edges()
         self.user_edges = EdgeSet()
+
+    def copy(self, exclude_edges=False):
+        res = Board(self.pegs)
+        if not exclude_edges:
+            res.user_edges.add_all(self.user_edges)
+        return res
 
     @staticmethod
     def new_board(style: str, size):
@@ -153,6 +162,15 @@ class Board:
             return True
         return False
 
+    def clear_user_edges(self, force=False):
+        if force:
+            self.user_edges.clear()  # not wise if there's active concrete
+        else:
+            all_edges = list(self.all_edges(including_outer=False))
+            for edge in all_edges:
+                if self.can_remove_user_edge(edge):
+                    self.remove_user_edge(edge)
+
     def get_closest_edge(self, xy, max_dist=float('inf'), including_outer=True):
         in_range = self.get_edges_in_circle(xy, radius=max_dist, including_outer=including_outer)
         return in_range[0] if len(in_range) > 0 else None
@@ -188,6 +206,9 @@ class Board:
     def all_nodes(self):
         for n in self.pegs:
             yield n
+
+    def is_outer_node(self, xy):
+        return xy in self.outer_edges.points_to_edges
 
     def calc_regions(self, normalize=False) -> typing.List[geometry.Polygon]:
 
@@ -264,7 +285,7 @@ class Board:
 class Edge:
 
     def __init__(self, p1, p2):
-        self.p1 = p1
+        self.p1 = p1  # for the love of god, treat these as immutable
         self.p2 = p2
 
     def points(self):
@@ -298,6 +319,9 @@ class Edge:
             return False  # intersect must not be at any endpoints
 
         return True
+
+    def length(self):
+        return utils.dist(self.p1, self.p2)
 
     def __eq__(self, other):
         return (self.p1 == other.p1 and self.p2 == other.p2) \
@@ -381,6 +405,21 @@ class GameplayScene(scenes.Scene):
             print(f"INFO: activating new board style {style}")
             self.gs = GameState(style)
             self.cancel_current_drag()
+
+        if pygame.K_p in const.KEYS_PRESSED_THIS_FRAME:
+            const.SHOW_POLYGONS = not const.SHOW_POLYGONS
+
+        if pygame.K_f in const.KEYS_PRESSED_THIS_FRAME:
+            goals.PolygonGoalFactory.subdivide_board(self.gs.board, goals.GoalGenParams())
+
+        if pygame.K_c in const.KEYS_PRESSED_THIS_FRAME:
+            self.gs.board.clear_user_edges()
+
+        if len(self.gs.goals) < 3:
+            new_goal = self.gs.goal_generator.gen_next_goal(max_tries=1)
+            if new_goal is not None:
+                print(f"INFO: added new goal: {new_goal}")
+                self.gs.goals.append(new_goal)
 
         self.handle_board_mouse_events()
 
@@ -494,8 +533,9 @@ class GameplayScene(scenes.Scene):
     def render(self, surf: pygame.Surface):
         pygame.draw.rect(surf, colors.BLACK, self.board_area)  # background
 
-        for idx, poly in enumerate(self.gs.board.calc_regions(normalize=False)):
-            self._render_polygon(surf, poly, colors.TONES[idx % len(colors.TONES)])
+        if const.SHOW_POLYGONS:
+            for idx, poly in enumerate(self.gs.board.calc_regions(normalize=False)):
+                self._render_polygon(surf, poly, colors.TONES[idx % len(colors.TONES)])
 
         color_overrides = {}  # Edge -> color
         if self.potential_edge is not None:

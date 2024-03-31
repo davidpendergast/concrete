@@ -20,13 +20,15 @@ class Polygon:
     def get_angles(self):
         if self._cached_angles is None:
             res = []
-            for i in range(self.vertices):
+            for i in range(len(self.vertices)):
                 p0 = self.vertices[i - 1]
                 p1 = self.vertices[i]
                 p2 = self.vertices[(i + 1) % len(self.vertices)]
                 v1 = pygame.Vector2(utils.sub(p0, p1))
                 v2 = pygame.Vector2(utils.sub(p2, p1))
-                res.append(v1.angle_to(v2))
+                ang = v1.angle_to(v2)
+                if abs(ang - 180) > const.THRESH:  # ignore flat (redundant) angles
+                    res.append(ang)
             self._cached_angles = tuple(res)
         return self._cached_angles
 
@@ -46,4 +48,8 @@ class Polygon:
                 return True
 
         return False
+
+    def __repr__(self):
+        ang = self.get_angles()
+        return f"{type(self).__name__}(n={len(self.vertices)}, vertices={self.vertices}, angles={ang} ({len(ang)}))"
 

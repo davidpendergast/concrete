@@ -1,9 +1,13 @@
+import random
 import typing
 
 import pygame
 import pygame._sdl2 as sdl2
 
 import sys, os, math
+
+
+T = typing.TypeVar('T')
 
 
 # from (my own) https://github.com/davidpendergast/pygame-utils/blob/main/rainbowize.py
@@ -276,6 +280,18 @@ def rejection(v1, v2):
         return None
     else:
         return sub(v1, proj_v1_onto_v2)
+
+def lightly_shuffle(items: typing.List[T], strength=0.25) -> typing.List[T]:
+    """
+    :param items: list of items to shuffle
+    :param strength: [0, 1.0) 0 is no shuffling, 1 is (nearly) fully shuffled.
+    """
+    weighted_items = []
+    n = len(items)
+    for i in range(n):
+        weighted_items.append((i + n * random.random() * strength, i, items[i]))
+    weighted_items.sort()
+    return list(map(lambda t: t[2], weighted_items))
 
 
 def time_to_str(seconds=0., minutes=0., hours=0.,  # NOQA
