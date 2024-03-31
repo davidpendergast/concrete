@@ -1,13 +1,43 @@
+import pygame
 import typing
 import random
 
 import src.geometry as geometry
 import src.gameplay as gameplay
 import src.utils as utils
+import src.colors as colors
 
 class PolygonGoal:
+
     def __init__(self, polygon: geometry.Polygon):
-        self.polygon = polygon
+        self.polygon = polygon.normalize()
+        self.actual = None
+
+    def is_satisfied_by(self, polygon: geometry.Polygon):
+        return self.polygon.is_equivalent_by_angles(polygon)
+
+    def set_satisfied(self, polygon: geometry.Polygon):
+        if self.is_satisfied_by(polygon):
+            self.actual = polygon
+            return True
+        else:
+            return False
+
+    def is_satisfied(self):
+        return self.actual is not None
+
+    def get_image(self, size, bg_color, fg_color, rot=0, width=2, inset=2) -> pygame.Surface:
+        res = pygame.Surface((size, size))
+        res.fill(bg_color)
+        poly = self.polygon
+        if rot != 0:
+            poly = poly.rotate(rot)
+        scaled_poly = poly.normalize([inset, inset, size-inset*2, size-inset*2], preserve_aspect_ratio=True)
+        pygame.draw.polygon(res, fg_color, scaled_poly.vertices, width=width)
+        return res
+
+    def __repr__(self):
+        return f"{type(self).__name__}({self.polygon})"
 
 
 class GoalGenerator:
@@ -34,7 +64,7 @@ class GoalGenerator:
                     self.buffer.append(p)
 
         if len(self.buffer) > 0:
-            return self.buffer.pop()
+            return PolygonGoal(self.buffer.pop())
         else:
             return None
 
@@ -45,9 +75,12 @@ class GoalGenParams:
         self.pcnt_edges_to_try = 0.2
         self.max_n_vertices = float('inf')
         self.min_n_vertices = 3
+        self.banned_polys = []
 
     def accepts(self, polygon) -> bool:
         if not (self.min_n_vertices <= len(polygon.get_angles()) <= self.max_n_vertices):
+            return False
+        if any(p.is_equivalent_by_angles(polygon) for p in self.banned_polys):
             return False
         return True
 

@@ -281,6 +281,31 @@ def rejection(v1, v2):
     else:
         return sub(v1, proj_v1_onto_v2)
 
+def center_rect_in_rect(to_move, in_rect):
+    return [
+        in_rect[0] + in_rect[2] / 2 - to_move[2] / 2,
+        in_rect[1] + in_rect[3] / 2 - to_move[3] / 2,
+        to_move[2], to_move[3]
+    ]
+
+def circular_lists_equal(l1, l2, thresh=0):
+    if len(l1) != len(l2):
+        return False
+
+    if not eq(list(sorted(l1)), list(sorted(l2)), thresh=thresh):
+        return False
+
+    n = len(l1)
+    for offs in range(n):
+        all_good = True
+        for i in range(n):
+            if abs(l1[i] - l2[(i + offs) % n]) > thresh:
+                all_good = False
+                break
+        if all_good:
+            return True
+    return False
+
 def lightly_shuffle(items: typing.List[T], strength=0.25) -> typing.List[T]:
     """
     :param items: list of items to shuffle

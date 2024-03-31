@@ -4,15 +4,16 @@ NAME_OF_GAME = "Diabolical Slabs"
 GAME_DIMS = (320, 240)
 BOARD_SIZE = 200
 THRESH = 0.0001
+N_GOALS = 3
 
 BOARD_STYLES = [
-    ("SQUARE", 2),
+    # ("SQUARE", 2),
     ("SQUARE", 4),
     ("SQUARE", 5),
     ("RECT", (3, 5)),
     ("RECT", (4, 3)),
     ("HEX", (5, 5)),  # small_edge_bias=0.5, pcnt_edges_to_try=0.2
-    ("HEX", (3, 3)),
+    # ("HEX", (3, 3)),
     ("HEX", (3, 5))
 ]
 

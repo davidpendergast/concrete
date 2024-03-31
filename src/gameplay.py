@@ -16,8 +16,41 @@ class GameState:
 
     def __init__(self, style=const.BOARD_STYLES[0]):
         self.board = Board.new_board(*style)
-        self.goal_generator = goals.GoalGenerator(self.board, goals.GoalGenParams())
-        self.goals = []
+        self.board_bg_polygon = self.board.calc_regions()[0]
+
+        params = goals.GoalGenParams()
+        params.banned_polys.append(self.board_bg_polygon)
+        params.min_n_vertices = 4
+
+        self.goal_generator = goals.GoalGenerator(self.board, params)
+        self.goals: typing.List[goals.PolygonGoal] = []
+        self.completed_count = 0
+
+    def update_goals(self, dt):
+        cur_polys = self.board.calc_regions()
+
+        # update goals
+        for goal in self.goals:
+            if not goal.is_satisfied():
+                for poly in cur_polys:
+                    if goal.is_satisfied_by(poly):
+                        goal.set_satisfied(poly)
+                        self.completed_count += 1
+                        print(f"INFO: completed goal {goal} using polygon {poly} (count={self.completed_count})")
+
+        self.goals = [g for g in self.goals if not g.is_satisfied()]
+
+        if len(self.goals) < const.N_GOALS:
+            new_goal = self.goal_generator.gen_next_goal(max_tries=1)
+            if new_goal is not None:
+                print(f"INFO: added new goal: {new_goal}")
+                self.goals.append(new_goal)
+
+
+    def update(self, dt):
+        self.update_goals(dt)
+
+
 
 
 class Board:
@@ -273,7 +306,7 @@ class Board:
                     if total_ang < 0:
                         remove_backtracking(path)
                         if len(path) > 2:
-                            polys.append(geometry.Polygon(path, normalize=False))
+                            polys.append(geometry.Polygon(path))
                     else:
                         pass  # inverted poly, discard
                 else:
@@ -387,9 +420,11 @@ class GameplayScene(scenes.Scene):
     def __init__(self, gs: GameState):
         super().__init__()
         self.gs = gs
-        self.board_area = [(const.GAME_DIMS[0] - const.BOARD_SIZE) / 2,
-                           (const.GAME_DIMS[1] - const.BOARD_SIZE) / 2,
-                           const.BOARD_SIZE, const.BOARD_SIZE]
+        self.goals_area = [0, 0, const.GAME_DIMS[0] / 4, const.GAME_DIMS[1]]
+
+        remaining = [self.goals_area[0] + self.goals_area[2], 0, const.GAME_DIMS[0] - self.goals_area[2], const.GAME_DIMS[1]]
+        board_rect = [0, 0, const.BOARD_SIZE, const.BOARD_SIZE]
+        self.board_area = utils.center_rect_in_rect(board_rect, remaining)
 
         self.board_style_idx = 0
 
@@ -415,13 +450,9 @@ class GameplayScene(scenes.Scene):
         if pygame.K_c in const.KEYS_PRESSED_THIS_FRAME:
             self.gs.board.clear_user_edges()
 
-        if len(self.gs.goals) < 3:
-            new_goal = self.gs.goal_generator.gen_next_goal(max_tries=1)
-            if new_goal is not None:
-                print(f"INFO: added new goal: {new_goal}")
-                self.gs.goals.append(new_goal)
-
         self.handle_board_mouse_events()
+
+        self.gs.update(dt)
 
     def cancel_current_drag(self):
         self.potential_edge = None
@@ -437,7 +468,7 @@ class GameplayScene(scenes.Scene):
                 scr_xy = const.MOUSE_RELEASED_AT_THIS_FRAME[pygame.BUTTON_LEFT]
                 b_xy = self.screen_xy_to_board_xy(scr_xy)
                 dest_node = self.gs.board.get_closest_node(b_xy, max_dist=click_dist)
-                if dest_node is None:
+                if dest_node is None or dest_node == self.potential_edge.p1:
                     # TODO sound effect (drag cancelled)
                     self.cancel_current_drag()
                 else:
@@ -531,6 +562,20 @@ class GameplayScene(scenes.Scene):
         pygame.draw.polygon(surf, color, vertices, width=width)
 
     def render(self, surf: pygame.Surface):
+        self.render_board(surf)
+        self.render_goals(surf)
+
+    def render_goals(self, surf: pygame.Surface):
+        pygame.draw.rect(surf, colors.BOARD_LINE_COLOR, self.goals_area, width=1)
+        px_size = self.goals_area[2] - 2
+
+        rot = self.elapsed_time / 1000
+
+        imgs = [goal.get_image(px_size, colors.BLACK, colors.TONES[0], rot=rot, width=2, inset=2) for goal in self.gs.goals]
+        for idx, img in enumerate(imgs):
+            surf.blit(img, (self.goals_area[0] + 1, self.goals_area[1] + (px_size + 2) * idx))
+
+    def render_board(self, surf: pygame.Surface):
         pygame.draw.rect(surf, colors.BLACK, self.board_area)  # background
 
         if const.SHOW_POLYGONS:
