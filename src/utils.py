@@ -129,6 +129,22 @@ def set_length(v, a):
     else:
         return mult(v, a / m)
 
+def eq(v1, v2, thresh=0):
+    if len(v1) != len(v2):
+        return False
+    for (i1, i2) in zip(v1, v2):
+        if abs(i1 - i2) > thresh:
+            return False
+    return True
+
+
+def ccw_angle_to_rads(v1, v2):
+    val = math.atan2(v1[0] * v2[1] - v1[1] * v2[0], v1[0] * v2[0] + v1[1] * v2[1])
+    if val < 0:
+        return val + 2 * math.pi
+    else:
+        return val
+
 
 def bounding_box(pts):
     min_x = float('inf')
@@ -141,6 +157,12 @@ def bounding_box(pts):
         min_y = min(y, min_y)
         max_y = max(y, max_y)
     return (min_x, min_y, max_x - min_x, max_y - min_y)
+
+
+def map_from_rect_to_rect(pt, r1, r2):
+    x1 = (pt[0] - r1[0]) / r1[2]
+    y1 = (pt[1] - r1[1]) / r1[3]
+    return (x1 * r2[2] + r2[0], y1 * r2[3] + r2[1])
 
 
 def circle_contains(center, radius, pt):

@@ -9,6 +9,7 @@ import src.utils as utils
 import pygame
 import src.scenes as scenes
 import src.colors as colors
+import src.geometry as geometry
 
 class GameState:
 
@@ -187,6 +188,78 @@ class Board:
     def all_nodes(self):
         for n in self.pegs:
             yield n
+
+    def calc_regions(self, normalize=False) -> typing.List[geometry.Polygon]:
+
+        graph = {}  # node -> list of connected nodes
+        for edge in self.all_edges(including_outer=True):
+            if edge.p1 not in graph:
+                graph[edge.p1] = set()
+            if edge.p2 not in graph:
+                graph[edge.p2] = set()
+            graph[edge.p1].add(edge.p2)
+            graph[edge.p2].add(edge.p1)
+
+        def pop_edge(n1, n2):
+            edges = graph[n1]
+            edges.remove(n2)
+            if len(edges) == 0:
+                del graph[n1]
+                return True
+            return False
+
+        def find_next_step(prev, cur):
+            v1 = pygame.Vector2(utils.sub(prev, cur))
+            best_ang = float('inf')
+            best = None
+            for n in graph[cur]:
+                vn = pygame.Vector2(utils.sub(n, cur))
+                ccw_ang = utils.ccw_angle_to_rads(v1, vn)
+                if (n != prev and ccw_ang < best_ang) or best is None:
+                    best_ang = ccw_ang if n != prev else float('inf')
+                    best = n
+            return best, (best_ang if best_ang < float('inf') else 0)
+
+        def remove_backtracking(pt_list):
+            keep_going = True
+            while keep_going and len(pt_list) > 2:
+                keep_going = False
+                for i in range(len(pt_list)):
+                    if pt_list[i] == pt_list[(i + 2) % len(pt_list)]:
+                        to_rm = tuple(sorted([(i + 2) % len(pt_list), (i + 1) % len(pt_list)]))
+                        pt_list.pop(to_rm[1])
+                        pt_list.pop(to_rm[0])
+                        keep_going = True
+                        break
+
+        polys = []
+        while len(graph) > 0:
+            path = [next(iter(graph.keys()))]  # choose any first node
+            path.append(next(iter(graph[path[0]])))  # choose any first edge
+            pop_edge(*path)
+            total_ang = 0
+
+            keep_going = True
+            while keep_going:
+                next_node, ang = find_next_step(path[-2], path[-1])
+
+                pop_edge(path[-1], next_node)
+                total_ang += ang - math.pi  # want to end up with 360 or -360 total
+
+                if next_node == path[0]:
+                    # completed the loop
+                    keep_going = False
+                    if total_ang < 0:
+                        remove_backtracking(path)
+                        if len(path) > 2:
+                            polys.append(geometry.Polygon(path, normalize=False))
+                    else:
+                        pass  # inverted poly, discard
+                else:
+                    path.append(next_node)
+
+        return polys
+
 
 class Edge:
 
@@ -414,8 +487,15 @@ class GameplayScene(scenes.Scene):
 
         pygame.draw.line(surf, color, p1, p2, width=width)
 
+    def _render_polygon(self, surf, polygon: geometry.Polygon, color, width=0):
+        vertices = [self.board_xy_to_screen_xy(pt) for pt in polygon.vertices]
+        pygame.draw.polygon(surf, color, vertices, width=width)
+
     def render(self, surf: pygame.Surface):
         pygame.draw.rect(surf, colors.BLACK, self.board_area)  # background
+
+        for idx, poly in enumerate(self.gs.board.calc_regions(normalize=False)):
+            self._render_polygon(surf, poly, colors.TONES[idx % len(colors.TONES)])
 
         color_overrides = {}  # Edge -> color
         if self.potential_edge is not None:
@@ -424,7 +504,7 @@ class GameplayScene(scenes.Scene):
                     color_overrides[e_val] = colors.REDS[4]
 
         for edge in self.gs.board.outer_edges:  # outline
-            color = color_overrides[edge] if edge in color_overrides else colors.BOARD_LINE_COLOR
+            color = color_overrides[edge] if edge in color_overrides else colors.WHITE  # colors.BOARD_LINE_COLOR
             self._render_edge(surf, edge, color, width=1)
 
         for edge in self.gs.board.user_edges:
@@ -445,7 +525,7 @@ class GameplayScene(scenes.Scene):
             self._render_edge(surf, self.potential_edge, color, width=3)
 
         for peg in self.gs.board.pegs:  # nodes
-            pygame.draw.circle(surf, colors.BOARD_LINE_COLOR, self.board_xy_to_screen_xy(peg), 4)
+            pygame.draw.circle(surf, colors.WHITE, self.board_xy_to_screen_xy(peg), 4)
 
     def get_bg_color(self):
         return colors.DARK_GRAY

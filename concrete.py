@@ -53,3 +53,5 @@ if __name__ == "__main__":
         scene_manager.render(screen)
 
         pygame.display.flip()
+
+        dt = clock.tick(60)

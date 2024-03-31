@@ -6,6 +6,7 @@ BOARD_SIZE = 200
 THRESH = 0.0001
 
 BOARD_STYLES = [
+    ("SQUARE", 2),
     ("SQUARE", 4),
     ("SQUARE", 5),
     ("RECT", (3, 5)),
