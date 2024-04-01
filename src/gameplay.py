@@ -11,45 +11,112 @@ import src.scenes as scenes
 import src.colors as colors
 import src.geometry as geometry
 import src.goals as goals
+import src.cementfill as cementfill
 
 class GameState:
 
     def __init__(self, style=const.BOARD_STYLES[0]):
         self.board = Board.new_board(*style)
-        self.board_bg_polygon = self.board.calc_regions()[0]
+
+        cur_regions = self.board.calc_regions()
+        self.board_bg_polygon = cur_regions[0].polygon  # only used for rendering
+        self.current_regions = cur_regions
 
         params = goals.GoalGenParams()
         params.banned_polys.append(self.board_bg_polygon)
         params.min_n_vertices = 4
 
         self.goal_generator = goals.GoalGenerator(self.board, params)
-        self.goals: typing.List[goals.PolygonGoal] = []
+        self.goals: typing.List[goals.PolygonGoal] = [None] * const.N_GOALS  # active_goals
+        self.satisfied_goals = []
         self.completed_count = 0
 
+    def update_regions(self, dt):
+        old_regions = set(self.current_regions)  # recalc in case updates caused deletions
+        new_regions = set(self.board.calc_regions())
+        to_add = [r for r in new_regions if r not in old_regions]
+        to_keep = [r for r in old_regions if r in new_regions]
+        self.current_regions = to_keep + to_add
+
+        for r in self.current_regions:
+            r.update(dt)
+
+    def remove_region(self, region):
+        self.current_regions.remove(region)
+        used_by_other_active_regions = EdgeSet()
+        for r in self.current_regions:
+            if r.is_satisfying_goal():
+                used_by_other_active_regions.add_all(r.edges)
+        for edge in region.edges:
+            if edge not in used_by_other_active_regions and self.board.can_remove_user_edge(edge):
+                self.board.remove_user_edge(edge)
+
+    def satisfied_goal(self, goal):
+        self.completed_count += 1
+        print(f"INFO: completed goal {goal} (count={self.completed_count})")
+
     def update_goals(self, dt):
-        cur_polys = self.board.calc_regions()
+        # update active goals
+        for i in range(len(self.goals)):
+            goal = self.goals[i]
+            if goal is not None and not goal.is_satisfied():
+                for region in self.current_regions:
+                    if not region.is_satisfying_goal() and goal.is_satisfied_by(region):
+                        goal.set_satisfied(region)
+                        region.set_satisfying_goal(goal)
+                        self.goals[i] = None  # make way for new active goal
+                        self.satisfied_goals.append(goal)
+                        self.satisfied_goal(goal)
+                        break
+            if self.goals[i] is None:
+                self.goals[i] = self.goal_generator.gen_next_goal(max_tries=1)
 
-        # update goals
-        for goal in self.goals:
-            if not goal.is_satisfied():
-                for poly in cur_polys:
-                    if goal.is_satisfied_by(poly):
-                        goal.set_satisfied(poly)
-                        self.completed_count += 1
-                        print(f"INFO: completed goal {goal} using polygon {poly} (count={self.completed_count})")
-
-        self.goals = [g for g in self.goals if not g.is_satisfied()]
-
-        if len(self.goals) < const.N_GOALS:
-            new_goal = self.goal_generator.gen_next_goal(max_tries=1)
-            if new_goal is not None:
-                print(f"INFO: added new goal: {new_goal}")
-                self.goals.append(new_goal)
+        # rm regions of fully completed goals
+        keep = []
+        for i in range(len(self.satisfied_goals)):
+            goal = self.satisfied_goals[i]
+            if goal.is_satisfied_and_finished():
+                # remove the goal and its board region
+                self.remove_region(goal.actual)
+            else:
+                keep.append(goal)
+        self.satisfied_goals = keep
 
     def update(self, dt):
+        self.update_regions(dt)
         self.update_goals(dt)
 
 
+class BoardRegion:
+
+    def __init__(self, polygon, edges):
+        self.polygon = polygon  # board space
+        self.edges = edges
+
+        self.satisfying_goal = None
+        self.goal_time_remaining = 5
+
+    def set_satisfying_goal(self, goal):
+        self.satisfying_goal = goal
+
+    def is_satisfying_goal(self):
+        return self.satisfying_goal is not None
+
+    def is_done(self):
+        return self.goal_time_remaining <= 0
+
+    def blocks_edge_removal(self):
+        return self.is_satisfying_goal() and not self.is_done()
+
+    def update(self, dt):
+        if self.is_satisfying_goal():
+            self.goal_time_remaining -= dt / 1000
+
+    def __hash__(self):
+        return hash(self.edges)
+
+    def __eq__(self, other):
+        return self.edges == other.edges
 
 
 class Board:
@@ -185,7 +252,6 @@ class Board:
             return False
 
     def can_remove_user_edge(self, edge: 'Edge') -> bool:
-        # TODO can't remove if it's holding concrete
         return edge in self.user_edges
 
     def remove_user_edge(self, edge: 'Edge') -> bool:
@@ -242,7 +308,10 @@ class Board:
     def is_outer_node(self, xy):
         return xy in self.outer_edges.points_to_edges
 
-    def calc_regions(self, normalize=False) -> typing.List[geometry.Polygon]:
+    def calc_polygons(self) -> typing.List[geometry.Polygon]:
+        return [region.polygon for region in self.calc_regions()]
+
+    def calc_regions(self) -> typing.List[BoardRegion]:
 
         graph = {}  # node -> list of connected nodes
         for edge in self.all_edges(including_outer=True):
@@ -285,7 +354,15 @@ class Board:
                         keep_going = True
                         break
 
-        polys = []
+        def recover_edges(pth) -> 'EdgeSet':
+            res = EdgeSet()
+            for i in range(len(pth)):
+                n1 = pth[i]
+                n2 = pth[(i + 1) % len(pth)]
+                res.add(Edge(n1, n2))
+            return res
+
+        regions = []
         while len(graph) > 0:
             path = [next(iter(graph.keys()))]  # choose any first node
             path.append(next(iter(graph[path[0]])))  # choose any first edge
@@ -303,15 +380,16 @@ class Board:
                     # completed the loop
                     keep_going = False
                     if total_ang < 0:
+                        edges = recover_edges(path)
                         remove_backtracking(path)
                         if len(path) > 2:
-                            polys.append(geometry.Polygon(path))
+                            regions.append(BoardRegion(geometry.Polygon(path), edges))
                     else:
                         pass  # inverted poly, discard
                 else:
                     path.append(next_node)
 
-        return polys
+        return regions
 
 
 class Edge:
@@ -414,6 +492,12 @@ class EdgeSet:
     def __repr__(self):
         return f"{type(self).__name__}{tuple(self.edges)}"
 
+    def __eq__(self, other):
+        return self.edges == other.edges
+
+    def __hash__(self):
+        return sum(hash(e) for e in self.edges)
+
 class GameplayScene(scenes.Scene):
 
     def __init__(self, gs: GameState):
@@ -429,6 +513,9 @@ class GameplayScene(scenes.Scene):
 
         self.potential_edge = None  # edge that's being dragged
         self.potential_edge_problems = {}
+
+        self.rot_time = 0
+        self.region_to_animator_mapping = {}
 
     def update(self, dt):
         super().update(dt)
@@ -449,9 +536,32 @@ class GameplayScene(scenes.Scene):
         if pygame.K_c in const.KEYS_PRESSED_THIS_FRAME:
             self.gs.board.clear_user_edges()
 
+        if pygame.K_SPACE not in const.KEYS_HELD_THIS_FRAME:
+            self.rot_time += dt  # space to slow the diabolical rotation
+        else:
+            self.rot_time += dt / 15
+
         self.handle_board_mouse_events()
 
         self.gs.update(dt)
+
+        self._update_animations(dt)
+
+    def _update_animations(self, dt):
+        old_regions = set(self.region_to_animator_mapping.keys())
+        new_regions = set(self.gs.current_regions)
+        for r in old_regions:
+            if r not in new_regions:
+                del self.region_to_animator_mapping[r]
+        for n in new_regions:
+            if n.is_satisfying_goal() and n not in self.region_to_animator_mapping:
+                screen_poly = geometry.Polygon([self.board_xy_to_screen_xy(v) for v in n.polygon.vertices])
+                bb = utils.bounding_box(screen_poly.vertices)
+                filler = cementfill.Filler(screen_poly, bb, total_time=n.goal_time_remaining, fill_time_pcnt=0.333)
+                self.region_to_animator_mapping[n] = (filler, bb)
+
+        for (k, v) in self.region_to_animator_mapping.items():
+            v[0].update(dt)
 
     def cancel_current_drag(self):
         self.potential_edge = None
@@ -568,17 +678,25 @@ class GameplayScene(scenes.Scene):
         pygame.draw.rect(surf, colors.BOARD_LINE_COLOR, self.goals_area, width=1)
         px_size = self.goals_area[2] - 2
 
-        rot = self.elapsed_time / 1000
+        rot = self.rot_time / 1000
 
-        imgs = [goal.get_image(px_size, colors.BLACK, colors.TONES[0], rot=rot, width=2, inset=2) for goal in self.gs.goals]
+        imgs = []
+        for goal in self.gs.goals:
+            if goal is not None:
+                fg_color = colors.LIGHT_GRAY if not goal.is_satisfied() else colors.WHITE
+                imgs.append(goal.get_image(px_size, colors.BLACK, fg_color, rot=rot, width=2, inset=2))
+            else:
+                imgs.append(None)
+
         for idx, img in enumerate(imgs):
-            surf.blit(img, (self.goals_area[0] + 1, self.goals_area[1] + (px_size + 2) * idx))
+            if img is not None:
+                surf.blit(img, (self.goals_area[0] + 1, self.goals_area[1] + (px_size + 2) * idx))
 
     def render_board(self, surf: pygame.Surface):
         pygame.draw.rect(surf, colors.BLACK, self.board_area)  # background
 
         if const.SHOW_POLYGONS:
-            for idx, poly in enumerate(self.gs.board.calc_regions(normalize=False)):
+            for idx, poly in enumerate(self.gs.board.calc_polygons()):
                 self._render_polygon(surf, poly, colors.TONES[idx % len(colors.TONES)])
 
         color_overrides = {}  # Edge -> color
@@ -590,6 +708,10 @@ class GameplayScene(scenes.Scene):
         for edge in self.gs.board.outer_edges:  # outline
             color = color_overrides[edge] if edge in color_overrides else colors.WHITE  # colors.BOARD_LINE_COLOR
             self._render_edge(surf, edge, color, width=1)
+
+        for (r, (animator, bb)) in self.region_to_animator_mapping.items():
+            img = animator.get_image()
+            surf.blit(img, bb)
 
         for edge in self.gs.board.user_edges:
             color = color_overrides[edge] if edge in color_overrides else colors.WHITE

@@ -13,15 +13,14 @@ class Filler:
             self,
             polygon: geometry.Polygon,
             rect,
-            px_per_sec=200,
             palette=colors.TONES,
-            dry_time_secs=2.5,
+            total_time=3.5,
+            fill_time_pcnt=0.25,
             max_brightness=0.3,
             final_brightness=0.4,
             n_starts=1):
 
         self.paint_surf = pygame.Surface((rect[2], rect[3]), pygame.SRCALPHA)
-        # pygame.draw.polygon(self.paint_surf, "black", polygon.vertices, width=1)  # test
 
         self.mask_surf = pygame.Surface((rect[2], rect[3]))
         self.mask_surf.fill("white")
@@ -49,9 +48,10 @@ class Filler:
 
         self.has_filled = 0
         self.elapsed_time = 0
-        self.px_per_sec = px_per_sec
+        total_fill_time = fill_time_pcnt * total_time
+        self.px_per_sec = len(self.remaining_cells) / total_fill_time
 
-        self.dry_time = dry_time_secs
+        self.dry_time = total_time - total_fill_time
         self.dry_time_remaining = self.dry_time
         self.drying_image = None
 

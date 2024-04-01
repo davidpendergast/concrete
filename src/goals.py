@@ -13,18 +13,21 @@ class PolygonGoal:
         self.polygon = polygon.normalize()
         self.actual = None
 
-    def is_satisfied_by(self, polygon: geometry.Polygon):
-        return self.polygon.is_equivalent_by_angles(polygon)
+    def is_satisfied_by(self, region):
+        return self.polygon.is_equivalent_by_angles(region.polygon)
 
-    def set_satisfied(self, polygon: geometry.Polygon):
-        if self.is_satisfied_by(polygon):
-            self.actual = polygon
+    def set_satisfied(self, region):
+        if self.is_satisfied_by(region):
+            self.actual = region
             return True
         else:
             return False
 
     def is_satisfied(self):
         return self.actual is not None
+
+    def is_satisfied_and_finished(self):
+        return self.is_satisfied() and self.actual.is_done()
 
     def get_image(self, size, bg_color, fg_color, rot=0, width=2, inset=2) -> pygame.Surface:
         res = pygame.Surface((size, size))
@@ -58,7 +61,7 @@ class GoalGenerator:
             self.board.clear_user_edges(force=True)
             PolygonGoalFactory.subdivide_board(self.board, self.params)
 
-            polys = self.board.calc_regions(normalize=True)
+            polys = [p.normalize() for p in self.board.calc_polygons()]
             for p in polys:
                 if self.params.accepts(p):
                     self.buffer.append(p)
