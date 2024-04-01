@@ -2,5 +2,3 @@
 
 BUgs:
 
- - polygons with holes not recognized?
- - can add single-point edge

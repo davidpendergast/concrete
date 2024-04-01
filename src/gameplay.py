@@ -46,7 +46,6 @@ class GameState:
                 print(f"INFO: added new goal: {new_goal}")
                 self.goals.append(new_goal)
 
-
     def update(self, dt):
         self.update_goals(dt)
 

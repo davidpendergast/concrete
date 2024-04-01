@@ -38,12 +38,18 @@ class Polygon:
 
         return utils.circular_lists_equal(my_angles, other_angles, thresh=const.THRESH)
 
-    def grow(self, scale) -> 'Polygon':
-        bb = utils.bounding_box(self.vertices)
-        new_bb = [bb[0] + bb[2] / 2 - bb[2] / 2 * scale,
-                  bb[1] + bb[3] / 2 - bb[3] / 2 * scale,
-                  bb[2] * scale, bb[3] * scale]
-        return self.normalize(new_bb=new_bb, preserve_aspect_ratio=False)
+    def scale(self, scale, from_center=True) -> 'Polygon':
+        if from_center:
+            bb = utils.bounding_box(self.vertices)
+            new_bb = [bb[0] + bb[2] / 2 - bb[2] / 2 * scale,
+                      bb[1] + bb[3] / 2 - bb[3] / 2 * scale,
+                      bb[2] * scale, bb[3] * scale]
+            return self.normalize(new_bb=new_bb, preserve_aspect_ratio=False)
+        else:
+            return Polygon([utils.mult(v, scale) for v in self.vertices])
+
+    def shift(self, dxy):
+        return Polygon([utils.add(v, dxy) for v in self.vertices])
 
     def rotate(self, rads) -> 'Polygon':
         bb = utils.bounding_box(self.vertices)
