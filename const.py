@@ -2,7 +2,7 @@ import os
 
 NAME_OF_GAME = "Diabolical Slabs"
 GAME_DIMS = (320, 240)
-BOARD_SIZE = 200
+BOARD_SIZE = 160
 THRESH = 0.0001
 N_GOALS = 3
 

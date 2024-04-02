@@ -10,6 +10,7 @@ import pygame
 import src.scenes as scenes
 import src.colors as colors
 import src.geometry as geometry
+from src.geometry import Edge, EdgeSet
 import src.goals as goals
 import src.cementfill as cementfill
 
@@ -50,6 +51,18 @@ class GameState:
         for edge in region.edges:
             if edge not in used_by_other_active_regions and self.board.can_remove_user_edge(edge):
                 self.board.remove_user_edge(edge)
+
+    def can_add_edge(self, edge, try_to_split=True):
+        split_edges = self.board.try_to_split(edge) if try_to_split else [edge]
+        concrete_regions = [r for r in self.current_regions if r.is_satisfying_goal()]
+        for r in concrete_regions:
+            for edge in split_edges:
+                if r.polygon.contains_point(edge.center()):
+                    return False
+                for r_edge in r.edges:
+                    if edge.intersects(r_edge):
+                        return False
+        return True
 
     def satisfied_goal(self, goal):
         self.completed_count += 1
@@ -392,122 +405,21 @@ class Board:
         return regions
 
 
-class Edge:
-
-    def __init__(self, p1, p2):
-        self.p1 = p1  # for the love of god, treat these as immutable
-        self.p2 = p2
-
-    def points(self):
-        return (self.p1, self.p2)
-
-    def contains_point(self, pt, including_endpoints=False):
-        dist = self.dist_to_point(pt)
-        if dist < const.THRESH:
-            if including_endpoints:
-                return True
-            else:
-                dist_p1 = utils.dist(pt, self.p1)
-                dist_p2 = utils.dist(pt, self.p2)
-                return dist_p1 > const.THRESH and dist_p2 > const.THRESH
-
-    def dist_to_point(self, pt):
-        return utils.dist_from_point_to_line(pt, self.p1, self.p2, segment=True)
-
-    def intersects(self, other: 'Edge'):
-        xy = utils.line_line_intersection(self.p1, self.p2, other.p1, other.p2)
-        if xy is None:
-            return (self.contains_point(other.p1) or self.contains_point(other.p2) or  # lines are parallel
-                    other.contains_point(self.p1) or other.contains_point(self.p2))
-
-        if (utils.dist_from_point_to_line(xy, self.p1, self.p2, segment=True) > const.THRESH
-                or utils.dist_from_point_to_line(xy, other.p1, other.p2, segment=True) > const.THRESH):
-            return False  # intersect must be inside both edges
-
-        if not min(utils.dist(xy, self.p1), utils.dist(xy, self.p2),
-                   utils.dist(xy, other.p1), utils.dist(xy, other.p2)) > const.THRESH:
-            return False  # intersect must not be at any endpoints
-
-        return True
-
-    def length(self):
-        return utils.dist(self.p1, self.p2)
-
-    def __eq__(self, other):
-        return (self.p1 == other.p1 and self.p2 == other.p2) \
-            or (self.p2 == other.p1 and self.p1 == other.p2)
-
-    def __hash__(self):
-        return hash(self.p1) + hash(self.p2)
-
-    def __repr__(self):
-        return f"{type(self).__name__}(({self.p1[0]:.2f}, {self.p1[1]:.2f}), ({self.p2[0]:.2f}, {self.p2[1]:.2f}))"
-
-class EdgeSet:
-
-    def __init__(self):
-        self.edges = set()
-        self.points_to_edges = {}  # pt -> set of Edges
-
-    def add(self, edge: Edge):
-        self.edges.add(edge)
-        for p in edge.points():
-            if p not in self.points_to_edges:
-                self.points_to_edges[p] = set()
-            self.points_to_edges[p].add(edge)
-        return self
-
-    def add_all(self, edges):
-        for e in edges:
-            self.add(e)
-        return self
-
-    def remove(self, edge: Edge):
-        if edge in self.edges:
-            self.edges.remove(edge)
-            for p in edge.points():
-                if p in self.points_to_edges:
-                    if edge in self.points_to_edges[p]:
-                        self.points_to_edges[p].remove(edge)
-                    if len(self.points_to_edges[p]) == 0:
-                        del self.points_to_edges[p]
-
-    def remove_all(self, edges):
-        for e in edges:
-            self.remove(e)
-
-    def clear(self):
-        self.edges.clear()
-        self.points_to_edges.clear()
-
-    def __contains__(self, edge):
-        return edge in self.edges
-
-    def __len__(self):
-        return len(self.edges)
-
-    def __iter__(self):
-        return self.edges.__iter__()
-
-    def __repr__(self):
-        return f"{type(self).__name__}{tuple(self.edges)}"
-
-    def __eq__(self, other):
-        return self.edges == other.edges
-
-    def __hash__(self):
-        return sum(hash(e) for e in self.edges)
-
 class GameplayScene(scenes.Scene):
 
     def __init__(self, gs: GameState):
         super().__init__()
         self.gs = gs
-        self.goals_area = [0, 0, const.GAME_DIMS[0] / 4, const.GAME_DIMS[1]]
+        self.goals_area = [0, 0, const.GAME_DIMS[0] / 5, const.GAME_DIMS[1]]
 
-        remaining = [self.goals_area[0] + self.goals_area[2], 0, const.GAME_DIMS[0] - self.goals_area[2], const.GAME_DIMS[1]]
+        w = const.GAME_DIMS[0] / 5
+        self.scoring_area = [const.GAME_DIMS[0] - w, 0, w, const.GAME_DIMS[1]]
+
+        self.remaining_area = [self.goals_area[0] + self.goals_area[2], 0,
+                               const.GAME_DIMS[0] - self.goals_area[2] - self.scoring_area[2],
+                               const.GAME_DIMS[1]]
         board_rect = [0, 0, const.BOARD_SIZE, const.BOARD_SIZE]
-        self.board_area = utils.center_rect_in_rect(board_rect, remaining)
+        self.board_area = utils.center_rect_in_rect(board_rect, self.remaining_area)
 
         self.board_style_idx = 0
 
@@ -582,24 +494,28 @@ class GameplayScene(scenes.Scene):
                     self.cancel_current_drag()
                 else:
                     new_edge = Edge(self.potential_edge.p1, dest_node)
-                    added = self.gs.board.add_user_edge(new_edge)
-                    if added:
-                        pass  # TODO sound effect (added new edge)
+                    if self.gs.can_add_edge(new_edge):
+                        added = self.gs.board.add_user_edge(new_edge)
+                        if added:
+                            pass  # TODO sound effect (added new edge)
+                        else:
+                            # TODO sound effect (failed to add edge)
+                            if const.AUTO_REMOVE_IF_INTERSECTING:
+                                problems = self.gs.board.can_add_user_edge(new_edge, get_problems=True)
+                                if len(problems) == 1 and 'intersects' in problems:
+                                    to_auto_rm = problems['intersects']
+                                    if all(self.gs.board.can_remove_user_edge(e) for e in to_auto_rm):
+                                        print(f"INFO: auto-removing edges {to_auto_rm} to add {new_edge}")
+                                        for e in to_auto_rm:
+                                            if not self.gs.board.remove_user_edge(e):
+                                                raise ValueError(f"Failed to remove edge {e} even though "
+                                                                 f"can_remove_user_edge said we could?")
+                                        if not self.gs.board.add_user_edge(new_edge):
+                                            raise ValueError(f"Failed to add edge {e} even though "
+                                                             f"we removed everything it intersected with?")
                     else:
-                        # TODO sound effect (failed to add edge)
-                        if const.AUTO_REMOVE_IF_INTERSECTING:
-                            problems = self.gs.board.can_add_user_edge(new_edge, get_problems=True)
-                            if len(problems) == 1 and 'intersects' in problems:
-                                to_auto_rm = problems['intersects']
-                                if all(self.gs.board.can_remove_user_edge(e) for e in to_auto_rm):
-                                    print(f"INFO: auto-removing edges {to_auto_rm} to add {new_edge}")
-                                    for e in to_auto_rm:
-                                        if not self.gs.board.remove_user_edge(e):
-                                            raise ValueError(f"Failed to remove edge {e} even though "
-                                                             f"can_remove_user_edge said we could?")
-                                    if not self.gs.board.add_user_edge(new_edge):
-                                        raise ValueError(f"Failed to add edge {e} even though "
-                                                         f"we removed everything it intersected with?")
+                        pass  # TODO sound effect (failed to add edge)
+
                     self.cancel_current_drag()  # reset drag state
 
         elif pygame.BUTTON_LEFT in const.MOUSE_PRESSED_AT_THIS_FRAME:
@@ -673,6 +589,7 @@ class GameplayScene(scenes.Scene):
     def render(self, surf: pygame.Surface):
         self.render_board(surf)
         self.render_goals(surf)
+        self.render_temperature(surf)
 
     def render_goals(self, surf: pygame.Surface):
         pygame.draw.rect(surf, colors.BOARD_LINE_COLOR, self.goals_area, width=1)
@@ -692,8 +609,20 @@ class GameplayScene(scenes.Scene):
             if img is not None:
                 surf.blit(img, (self.goals_area[0] + 1, self.goals_area[1] + (px_size + 2) * idx))
 
+    def render_temperature(self, surf: pygame.Surface):
+        pygame.draw.rect(surf, colors.BOARD_LINE_COLOR, self.scoring_area, width=1)
+
     def render_board(self, surf: pygame.Surface):
-        pygame.draw.rect(surf, colors.BLACK, self.board_area)  # background
+        pygame.draw.rect(surf, colors.BOARD_LINE_COLOR, self.remaining_area, width=1)
+
+        # background
+        bg_poly = geometry.Polygon([self.board_xy_to_screen_xy(v) for v in self.gs.board_bg_polygon.vertices])
+        bb = utils.bounding_box(bg_poly.vertices)
+        expansion = 4
+        new_bb = [bb[0] - expansion, bb[1] - expansion, bb[2] + expansion * 2, bb[3] + expansion * 2]
+        bg_poly = bg_poly.normalize(new_bb=new_bb, preserve_aspect_ratio=False)
+        pygame.draw.polygon(surf, colors.BLACK, bg_poly.vertices)
+        pygame.draw.polygon(surf, colors.BOARD_LINE_COLOR, bg_poly.vertices, width=1)
 
         if const.SHOW_POLYGONS:
             for idx, poly in enumerate(self.gs.board.calc_polygons()):
@@ -706,7 +635,7 @@ class GameplayScene(scenes.Scene):
                     color_overrides[e_val] = colors.REDS[4]
 
         for edge in self.gs.board.outer_edges:  # outline
-            color = color_overrides[edge] if edge in color_overrides else colors.WHITE  # colors.BOARD_LINE_COLOR
+            color = color_overrides[edge] if edge in color_overrides else colors.WHITE
             self._render_edge(surf, edge, color, width=1)
 
         for (r, (animator, bb)) in self.region_to_animator_mapping.items():
@@ -731,7 +660,7 @@ class GameplayScene(scenes.Scene):
             self._render_edge(surf, self.potential_edge, color, width=3)
 
         for peg in self.gs.board.pegs:  # nodes
-            pygame.draw.circle(surf, colors.WHITE, self.board_xy_to_screen_xy(peg), 4)
+            pygame.draw.circle(surf, colors.WHITE, self.board_xy_to_screen_xy(peg), 3)
 
     def get_bg_color(self):
         return colors.DARK_GRAY
