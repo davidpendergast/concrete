@@ -9,16 +9,20 @@ class Polygon:
 
     def __init__(self, vertices):
         self.vertices = vertices  # immutable pls
+
+        # used for scale-independent equivalence checking
         self._cached_angles = None
+        self._cached_length_ratios = None
 
     @staticmethod
     def _scale_to_new_bounding_box(vertices, new_bb):
         bb = utils.bounding_box(vertices)
         return [utils.map_from_rect_to_rect(pt, bb, new_bb) for pt in vertices]
 
-    def get_angles(self):
+    def get_angles_and_edge_ratios(self):
         if self._cached_angles is None:
-            res = []
+            angles = []
+            vertices_used = []
             for i in range(len(self.vertices)):
                 p0 = self.vertices[i - 1]
                 p1 = self.vertices[i]
@@ -28,15 +32,41 @@ class Polygon:
                 ang = utils.ccw_angle_to_rads(v1, v2) * 180 / math.pi
 
                 if abs(ang - 180) > const.THRESH:  # ignore flat (redundant) angles
-                    res.append(ang)
-            self._cached_angles = tuple(res)
-        return self._cached_angles
+                    angles.append(ang)
+                    vertices_used.append(p1)
+            self._cached_angles = tuple(angles)
 
-    def is_equivalent_by_angles(self, other):
-        my_angles = self.get_angles()
-        other_angles = other.get_angles()
+            total_perimeter = 0
+            edge_lengths = []
+            for i in range(len(vertices_used)):
+                p0 = vertices_used[i]
+                p1 = vertices_used[(i + 1) % len(vertices_used)]
+                dist = utils.dist(p0, p1)
+                edge_lengths.append(dist)
+                total_perimeter += dist
+            if total_perimeter > 0:
+                self._cached_length_ratios = tuple(l / total_perimeter for l in edge_lengths)
+            else:
+                self._cached_length_ratios = (0,) * len(edge_lengths)
 
-        return utils.circular_lists_equal(my_angles, other_angles, thresh=const.THRESH)
+        return self._cached_angles, self._cached_length_ratios
+
+    def get_angles(self):
+        return self.get_angles_and_edge_ratios()[0]
+
+    def is_equivalent_by_angles_and_edge_ratios(self, other):
+        # XXX in theory it might be possible to mismatched angle & edge arrays that happen
+        # to match independently... but that seems rare
+        my_angles, my_lengths = self.get_angles_and_edge_ratios()
+        other_angles, other_lengths = other.get_angles_and_edge_ratios()
+
+        if not utils.circular_lists_equal(my_angles, other_angles, thresh=const.THRESH):
+            return False
+
+        if not utils.circular_lists_equal(my_lengths, other_lengths, thresh=const.THRESH):
+            return False
+
+        return True
 
     def scale(self, scale, from_center=True) -> 'Polygon':
         if from_center:
@@ -75,6 +105,5 @@ class Polygon:
         return Polygon(Polygon._scale_to_new_bounding_box(self.vertices, new_bb))
 
     def __repr__(self):
-        ang = self.get_angles()
-        return f"{type(self).__name__}(n={len(self.vertices)}, vertices={self.vertices}, angles={ang} ({len(ang)}))"
+        return f"{type(self).__name__}(n={len(self.vertices)}, vertices={self.vertices}, angles={self.get_angles()})"
 

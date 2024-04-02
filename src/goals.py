@@ -14,7 +14,7 @@ class PolygonGoal:
         self.actual = None
 
     def is_satisfied_by(self, region):
-        return self.polygon.is_equivalent_by_angles(region.polygon)
+        return self.polygon.is_equivalent_by_angles_and_edge_ratios(region.polygon)
 
     def set_satisfied(self, region):
         if self.is_satisfied_by(region):
@@ -83,7 +83,7 @@ class GoalGenParams:
     def accepts(self, polygon) -> bool:
         if not (self.min_n_vertices <= len(polygon.get_angles()) <= self.max_n_vertices):
             return False
-        if any(p.is_equivalent_by_angles(polygon) for p in self.banned_polys):
+        if any(p.is_equivalent_by_angles_and_edge_ratios(polygon) for p in self.banned_polys):
             return False
         return True
 
