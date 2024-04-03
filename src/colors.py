@@ -19,6 +19,12 @@ REDS = [
 
 BOARD_LINE_COLOR = pygame.Color('#786959')
 
+BLUE_MID = pygame.Color('#475059')
+BLUE_MID_LIGHT = pygame.Color('#6a756f')
+BLUE_LIGHT = pygame.Color('#b6b6b4')  # LIGHT_GRAY
+BLUE_DARK = pygame.Color('#212226')
+
+
 TONES = [
     pygame.Color('#85977f'),
     pygame.Color('#7b7d72'),

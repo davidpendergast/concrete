@@ -51,7 +51,14 @@ class GoalGenerator:
         self.params = params
         self.buffer = []
 
-    def gen_next_goal(self, max_tries=float('inf')) -> PolygonGoal:
+    def gen_next_goal(self, temp_banned_shapes=(), max_tries=float('inf')) -> PolygonGoal:
+
+        def accepts_poly(p):
+            return self.params.accepts(p) and \
+                    not any(p.is_equivalent_by_angles_and_edge_ratios(s) for s in temp_banned_shapes)
+
+        self.buffer = [p for p in self.buffer if accepts_poly(p)]
+
         cnt = 0
         while len(self.buffer) == 0:
             if cnt > max_tries:
@@ -63,7 +70,7 @@ class GoalGenerator:
 
             polys = [p.normalize() for p in self.board.calc_polygons()]
             for p in polys:
-                if self.params.accepts(p):
+                if accepts_poly(p):
                     self.buffer.append(p)
 
         if len(self.buffer) > 0:

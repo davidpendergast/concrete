@@ -1,4 +1,5 @@
 import math
+import typing
 
 import pygame
 
@@ -128,11 +129,17 @@ class Polygon:
         # used for scale-independent equivalence checking
         self._cached_angles = None
         self._cached_length_ratios = None
+        self._cached_nonflat_vertices = None
 
     @staticmethod
     def _scale_to_new_bounding_box(vertices, new_bb):
         bb = utils.bounding_box(vertices)
         return [utils.map_from_rect_to_rect(pt, bb, new_bb) for pt in vertices]
+
+    def get_nonflat_vertices(self):
+        if self._cached_nonflat_vertices is None:
+            self.get_angles_and_edge_ratios()
+        return self._cached_nonflat_vertices
 
     def get_angles_and_edge_ratios(self):
         if self._cached_angles is None:
@@ -146,7 +153,7 @@ class Polygon:
                 v2 = pygame.Vector2(utils.sub(p2, p1))
                 ang = utils.ccw_angle_to_rads(v1, v2) * 180 / math.pi
 
-                if abs(ang - 180) > const.THRESH:  # ignore flat (redundant) angles
+                if abs(ang - 180) > 1:  # ignore flat (redundant) angles
                     angles.append(ang)
                     vertices_used.append(p1)
             self._cached_angles = tuple(angles)
@@ -164,22 +171,26 @@ class Polygon:
             else:
                 self._cached_length_ratios = (0,) * len(edge_lengths)
 
+            self._cached_nonflat_vertices = vertices_used
+
         return self._cached_angles, self._cached_length_ratios
 
     def get_angles(self):
         return self.get_angles_and_edge_ratios()[0]
 
-    def is_equivalent_by_angles_and_edge_ratios(self, other):
+    def is_equivalent_by_angles_and_edge_ratios(self, other, allow_mirrored=True):
         # XXX in theory it might be possible to mismatched angle & edge arrays that happen
         # to match independently... but that seems rare
         my_angles, my_lengths = self.get_angles_and_edge_ratios()
         other_angles, other_lengths = other.get_angles_and_edge_ratios()
 
         if not utils.circular_lists_equal(my_angles, other_angles, thresh=const.THRESH):
-            return False
+            if not allow_mirrored or not utils.circular_lists_equal(my_angles, list(reversed(other_angles)), thresh=const.THRESH):
+                return False
 
         if not utils.circular_lists_equal(my_lengths, other_lengths, thresh=const.THRESH):
-            return False
+            if not allow_mirrored or not utils.circular_lists_equal(my_lengths, list(reversed(other_lengths)), thresh=const.THRESH):
+                return False
 
         return True
 
@@ -192,6 +203,25 @@ class Polygon:
             return self.normalize(new_bb=new_bb, preserve_aspect_ratio=False)
         else:
             return Polygon([utils.mult(v, scale) for v in self.vertices])
+
+    def expand_from_center(self, expansion):
+        bb = utils.bounding_box(self.vertices)
+        new_bb = [bb[0] - expansion, bb[1] - expansion, bb[2] + expansion * 2, bb[3] + expansion * 2]
+        return self.normalize(new_bb=new_bb, preserve_aspect_ratio=False)
+
+    def pizza_cut(self, about_pt) -> typing.List['Polygon']:
+        res = []
+        for v1, v2 in utils.iterate_pairwise(self.get_nonflat_vertices()):
+            res.append(Polygon([about_pt, v1, v2]))
+        return res
+
+    def avg_pt(self):
+        xtot = 0
+        ytot = 0
+        for pt in self.vertices:
+            xtot += pt[0]
+            ytot += pt[1]
+        return xtot / len(self.vertices), ytot / len(self.vertices)
 
     def shift(self, dxy):
         return Polygon([utils.add(v, dxy) for v in self.vertices])

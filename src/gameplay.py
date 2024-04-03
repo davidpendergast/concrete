@@ -64,6 +64,13 @@ class GameState:
                         return False
         return True
 
+    def can_remove_edge(self, edge):
+        concrete_regions = [r for r in self.current_regions if r.is_satisfying_goal()]
+        for r in concrete_regions:
+            if edge in r.edges:
+                return False
+        return True
+
     def satisfied_goal(self, goal):
         self.completed_count += 1
         print(f"INFO: completed goal {goal} (count={self.completed_count})")
@@ -82,7 +89,8 @@ class GameState:
                         self.satisfied_goal(goal)
                         break
             if self.goals[i] is None:
-                self.goals[i] = self.goal_generator.gen_next_goal(max_tries=1)
+                temp_banned = [s.polygon for s in self.goals if s is not None] + [s.polygon for s in self.satisfied_goals]
+                self.goals[i] = self.goal_generator.gen_next_goal(temp_banned_shapes=temp_banned, max_tries=1)
 
         # rm regions of fully completed goals
         keep = []
@@ -445,9 +453,6 @@ class GameplayScene(scenes.Scene):
         if pygame.K_f in const.KEYS_PRESSED_THIS_FRAME:
             goals.PolygonGoalFactory.subdivide_board(self.gs.board, goals.GoalGenParams())
 
-        if pygame.K_c in const.KEYS_PRESSED_THIS_FRAME:
-            self.gs.board.clear_user_edges()
-
         if pygame.K_SPACE not in const.KEYS_HELD_THIS_FRAME:
             self.rot_time += dt  # space to slow the diabolical rotation
         else:
@@ -479,6 +484,9 @@ class GameplayScene(scenes.Scene):
         self.potential_edge = None
         self.potential_edge_problems = {}
 
+    def can_remove_edge(self, edge):
+        return self.gs.can_remove_edge(edge) and self.gs.board.can_remove_user_edge(edge)
+
     def handle_board_mouse_events(self):
         click_dist = self.screen_dist_to_board_dist(const.CLICK_DISTANCE_PX)
         if self.potential_edge is not None:
@@ -504,12 +512,12 @@ class GameplayScene(scenes.Scene):
                                 problems = self.gs.board.can_add_user_edge(new_edge, get_problems=True)
                                 if len(problems) == 1 and 'intersects' in problems:
                                     to_auto_rm = problems['intersects']
-                                    if all(self.gs.board.can_remove_user_edge(e) for e in to_auto_rm):
+                                    if all(self.can_remove_edge(e) for e in to_auto_rm):
                                         print(f"INFO: auto-removing edges {to_auto_rm} to add {new_edge}")
                                         for e in to_auto_rm:
                                             if not self.gs.board.remove_user_edge(e):
                                                 raise ValueError(f"Failed to remove edge {e} even though "
-                                                                 f"can_remove_user_edge said we could?")
+                                                                 f"can_remove_edge said we could?")
                                         if not self.gs.board.add_user_edge(new_edge):
                                             raise ValueError(f"Failed to add edge {e} even though "
                                                              f"we removed everything it intersected with?")
@@ -529,7 +537,7 @@ class GameplayScene(scenes.Scene):
             scr_xy = const.MOUSE_PRESSED_AT_THIS_FRAME[pygame.BUTTON_RIGHT]
             b_xy = self.screen_xy_to_board_xy(scr_xy)
             edge = self.gs.board.get_closest_edge(b_xy, max_dist=click_dist, including_outer=False)
-            if edge is not None:
+            if edge is not None and self.can_remove_edge(edge):
                 # TODO sound effect
                 self.gs.board.remove_user_edge(edge)
 
@@ -592,7 +600,7 @@ class GameplayScene(scenes.Scene):
         self.render_temperature(surf)
 
     def render_goals(self, surf: pygame.Surface):
-        pygame.draw.rect(surf, colors.BOARD_LINE_COLOR, self.goals_area, width=1)
+        # pygame.draw.rect(surf, colors.BOARD_LINE_COLOR, self.goals_area, width=1)
         px_size = self.goals_area[2] - 2
 
         rot = self.rot_time / 1000
@@ -600,8 +608,8 @@ class GameplayScene(scenes.Scene):
         imgs = []
         for goal in self.gs.goals:
             if goal is not None:
-                fg_color = colors.LIGHT_GRAY if not goal.is_satisfied() else colors.WHITE
-                imgs.append(goal.get_image(px_size, colors.BLACK, fg_color, rot=rot, width=2, inset=2))
+                fg_color = colors.BLUE_LIGHT if not goal.is_satisfied() else colors.WHITE
+                imgs.append(goal.get_image(px_size, colors.BLUE_DARK, fg_color, rot=rot, width=2, inset=2))
             else:
                 imgs.append(None)
 
@@ -613,16 +621,26 @@ class GameplayScene(scenes.Scene):
         pygame.draw.rect(surf, colors.BOARD_LINE_COLOR, self.scoring_area, width=1)
 
     def render_board(self, surf: pygame.Surface):
-        pygame.draw.rect(surf, colors.BOARD_LINE_COLOR, self.remaining_area, width=1)
+        pygame.draw.rect(surf, colors.BLUE_MID, utils.rect_expand(self.remaining_area, all_sides=-1), width=0)
 
         # background
-        bg_poly = geometry.Polygon([self.board_xy_to_screen_xy(v) for v in self.gs.board_bg_polygon.vertices])
-        bb = utils.bounding_box(bg_poly.vertices)
-        expansion = 4
-        new_bb = [bb[0] - expansion, bb[1] - expansion, bb[2] + expansion * 2, bb[3] + expansion * 2]
-        bg_poly = bg_poly.normalize(new_bb=new_bb, preserve_aspect_ratio=False)
-        pygame.draw.polygon(surf, colors.BLACK, bg_poly.vertices)
-        pygame.draw.polygon(surf, colors.BOARD_LINE_COLOR, bg_poly.vertices, width=1)
+        true_bg_poly = geometry.Polygon([self.board_xy_to_screen_xy(v) for v in self.gs.board_bg_polygon.vertices])
+        inner_bg_poly = true_bg_poly.expand_from_center(6)
+        outer_bg_poly = inner_bg_poly.expand_from_center(6)
+        pygame.draw.polygon(surf, colors.BLUE_DARK, outer_bg_poly.vertices)
+
+        center = outer_bg_poly.avg_pt()
+        for tri in outer_bg_poly.pizza_cut(center):
+            tri_center = tri.avg_pt()
+            dx = tri_center[0] - center[0]
+            dy = tri_center[1] - center[1]
+            if abs(dx) > abs(dy):
+                tri_color = colors.BLUE_MID_LIGHT
+            else:
+                tri_color = colors.BLUE_LIGHT if dy > 0 else colors.BLUE_DARK
+            pygame.draw.polygon(surf, tri_color, tri.vertices)
+
+        pygame.draw.polygon(surf, colors.BLACK, inner_bg_poly.vertices)
 
         if const.SHOW_POLYGONS:
             for idx, poly in enumerate(self.gs.board.calc_polygons()):
@@ -634,17 +652,17 @@ class GameplayScene(scenes.Scene):
                 for e_val in self.potential_edge_problems[key]:
                     color_overrides[e_val] = colors.REDS[4]
 
-        for edge in self.gs.board.outer_edges:  # outline
-            color = color_overrides[edge] if edge in color_overrides else colors.WHITE
-            self._render_edge(surf, edge, color, width=1)
-
         for (r, (animator, bb)) in self.region_to_animator_mapping.items():
             img = animator.get_image()
             surf.blit(img, bb)
 
+        for edge in self.gs.board.outer_edges:  # outline
+            color = color_overrides[edge] if edge in color_overrides else colors.WHITE
+            self._render_edge(surf, edge, color, width=1)
+
         for edge in self.gs.board.user_edges:
             color = color_overrides[edge] if edge in color_overrides else colors.WHITE
-            self._render_edge(surf, edge, color, width=3)
+            self._render_edge(surf, edge, color, width=2)
 
         if self.potential_edge is not None:
             if len(self.potential_edge_problems) is None:
@@ -660,6 +678,7 @@ class GameplayScene(scenes.Scene):
             self._render_edge(surf, self.potential_edge, color, width=3)
 
         for peg in self.gs.board.pegs:  # nodes
+            pygame.draw.circle(surf, colors.BLACK, self.board_xy_to_screen_xy(peg), 5)
             pygame.draw.circle(surf, colors.WHITE, self.board_xy_to_screen_xy(peg), 3)
 
     def get_bg_color(self):

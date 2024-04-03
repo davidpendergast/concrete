@@ -288,6 +288,16 @@ def center_rect_in_rect(to_move, in_rect):
         to_move[2], to_move[3]
     ]
 
+def rect_expand(rect, all_sides=0, left=0, right=0, top=0, bottom=0):
+    return [rect[0] - all_sides - left,
+            rect[1] - all_sides - top,
+            rect[2] + all_sides * 2 + left + right,
+            rect[3] + all_sides * 2 + top + bottom]
+
+def iterate_pairwise(l):
+    for i in range(len(l)):
+        yield (l[i], l[(i + 1) % len(l)])
+
 def circular_lists_equal(l1, l2, thresh=0):
     if len(l1) != len(l2):
         return False
