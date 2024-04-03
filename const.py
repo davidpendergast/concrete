@@ -1,10 +1,13 @@
 import os
 
+import pygame
+import src.utils as utils
+
 NAME_OF_GAME = "Diabolical Slabs"
 GAME_DIMS = (320, 240)
 BOARD_SIZE = 160
 THRESH = 0.0001
-N_GOALS = 3
+N_GOALS = 4
 
 BOARD_STYLES = [
     # ("SQUARE", 2),

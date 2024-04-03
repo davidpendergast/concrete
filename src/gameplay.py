@@ -1,6 +1,7 @@
 import math
 import typing
 import random
+import time
 
 import const
 import src.convexhull as convexhull
@@ -14,6 +15,9 @@ from src.geometry import Edge, EdgeSet
 import src.goals as goals
 import src.cementfill as cementfill
 import src.spites as sprites
+
+INNER_EXPANSION = 6
+OUTER_EXPANSION = 6
 
 class GameState:
 
@@ -29,20 +33,21 @@ class GameState:
         params.min_n_vertices = 4
 
         self.goal_generator = goals.GoalGenerator(self.board, params)
-        self.goals: typing.List[goals.PolygonGoal] = [None] * const.N_GOALS  # active_goals
+        self.goals: typing.List[goals.PolygonGoal] = []  # active_goals
         self.satisfied_goals = []
         self.completed_count = 0
+        self.level_complete_count = 15
 
-        self.buffer_zone = 0.2
+        self.buffer_zone = 0.05
         self.max_temperature = 1.0
-        self.temperature = 0.333
+        self.temperature = 0.666
         self.decay_rate = 0.03  # percent max per second
 
         self.score = 0
 
     def get_temperature(self, normalize=True):
         if normalize:
-            return min(1.0, max(0, self.temperature / self.max_temperature))
+            return min(1.0, max(0.0, self.temperature / self.max_temperature))
         return self.temperature
 
     def update_regions(self, dt):
@@ -97,20 +102,30 @@ class GameState:
 
     def update_goals(self, dt):
         # update active goals
-        for i in range(len(self.goals)):
-            goal = self.goals[i]
-            if goal is not None and not goal.is_satisfied():
+        keep_goals = []
+        for goal in self.goals:
+            keep = True
+            if not goal.is_satisfied():
                 for region in self.current_regions:
                     if not region.is_satisfying_goal() and goal.is_satisfied_by(region):
                         goal.set_satisfied(region)
                         region.set_satisfying_goal(goal)
-                        self.goals[i] = None  # make way for new active goal
+                        keep = False
                         self.satisfied_goals.append(goal)
                         self.satisfied_goal(goal)
                         break
-            if self.goals[i] is None:
-                temp_banned = [s.polygon for s in self.goals if s is not None] + [s.polygon for s in self.satisfied_goals]
-                self.goals[i] = self.goal_generator.gen_next_goal(temp_banned_shapes=temp_banned, max_tries=1)
+            if keep:
+                keep_goals.append(goal)
+
+        self.goals = keep_goals
+
+        # gen new goals
+        if len(self.goals) < const.N_GOALS:
+            temp_banned = [s.polygon for s in self.goals if s is not None] + [s.polygon for s in self.satisfied_goals]
+            for _ in range(const.N_GOALS - len(self.goals)):
+                new_goal = self.goal_generator.gen_next_goal(temp_banned_shapes=temp_banned, max_tries=1)
+                if new_goal is not None:
+                    self.goals.append(new_goal)
 
         # rm regions of fully completed goals
         keep = []
@@ -448,15 +463,21 @@ class GameplayScene(scenes.Scene):
         super().__init__()
         self.gs = gs
         self.goals_area = [0, 0, const.GAME_DIMS[0] / 5, const.GAME_DIMS[1]]
+        self.goal_px_size = self.goals_area[2] - 2
 
         w = const.GAME_DIMS[0] / 5
-        self.scoring_area = [const.GAME_DIMS[0] - w, 0, w, const.GAME_DIMS[1]]
+        self.thermo_area = [const.GAME_DIMS[0] - w, 0, w, const.GAME_DIMS[1]]
 
         self.remaining_area = [self.goals_area[0] + self.goals_area[2], 0,
-                               const.GAME_DIMS[0] - self.goals_area[2] - self.scoring_area[2],
+                               const.GAME_DIMS[0] - self.goals_area[2] - self.thermo_area[2],
                                const.GAME_DIMS[1]]
         board_rect = [0, 0, const.BOARD_SIZE, const.BOARD_SIZE]
         self.board_area = utils.center_rect_in_rect(board_rect, self.remaining_area)
+
+        scoring_rect = [0, 0, *sprites.Sheet.SCORE_BG.get_size()]
+        scoring_rect = utils.center_rect_in_rect(scoring_rect, self.remaining_area)
+        scoring_rect[1] = ((self.remaining_area[1] + self.board_area[1] - INNER_EXPANSION - OUTER_EXPANSION) - scoring_rect[3]) // 2
+        self.scoring_area = scoring_rect
 
         self.board_style_idx = 0
 
@@ -508,6 +529,32 @@ class GameplayScene(scenes.Scene):
 
         for (k, v) in self.region_to_animator_mapping.items():
             v[0].update(dt)
+
+        goal_move_speed = 40  # px per sec
+        next_y = 0
+        spawn_y = self.goals_area[1] + self.goals_area[3]  # spawn offscreen
+        buffer = 2
+        for goal in self.gs.goals:
+            if 'xy' not in goal.data:
+                goal.data['xy'] = (0, spawn_y)
+                spawn_y += self.goal_px_size + buffer
+            else:
+                x, y = goal.data['xy']
+                if y > next_y:  # room to move
+                    move_y = dt / 1000 * goal_move_speed
+                    goal.data['xy'] = (x, max(next_y, y - move_y))
+                next_y = goal.data['xy'][1] + self.goal_px_size + buffer
+
+        fling_speed = 100
+        for goal in self.gs.satisfied_goals:
+            if 'xy' in goal.data:
+                x, y = goal.data['xy']
+                goal.data['xy'] = (x - fling_speed * dt / 1000, y)
+
+
+
+
+
 
     def cancel_current_drag(self):
         self.potential_edge = None
@@ -627,41 +674,72 @@ class GameplayScene(scenes.Scene):
         self.render_board(surf)
         self.render_goals(surf)
         self.render_temperature(surf)
+        self.render_score(surf)
 
     def render_goals(self, surf: pygame.Surface):
-        # pygame.draw.rect(surf, colors.BOARD_LINE_COLOR, self.goals_area, width=1)
-        px_size = self.goals_area[2] - 2
-
-        rot = self.rot_time / 1000
+        pygame.draw.rect(surf, colors.BLACK, self.goals_area)
+        cur_time = time.time()
 
         imgs = []
         for goal in self.gs.goals:
-            if goal is not None:
-                fg_color = colors.BLUE_LIGHT if not goal.is_satisfied() else colors.WHITE
-                imgs.append(goal.get_image(px_size, colors.BLUE_DARK, fg_color, rot=rot, width=2, inset=2))
-            else:
-                imgs.append(None)
+            rot = cur_time - goal.data['rand'] * 100
+            if 'xy' in goal.data:
+                imgs.append((goal.data['xy'], goal.get_image(self.goal_px_size, colors.BLUE_DARK, colors.BLUE_LIGHT,
+                                                             rot=rot, width=2, inset=2)))
 
-        for idx, img in enumerate(imgs):
-            if img is not None:
-                surf.blit(img, (self.goals_area[0] + 1, self.goals_area[1] + (px_size + 2) * idx))
+        for goal in self.gs.satisfied_goals:
+            if 'xy' in goal.data:
+                x, y = goal.data['xy']
+                rot = cur_time - goal.data['rand'] * 100
+                fg_color = colors.BLUE_LIGHT if not goal.is_satisfied() else colors.WHITE
+                if x > -2 * self.goal_px_size:
+                    imgs.append((goal.data['xy'],
+                                 goal.get_image(self.goal_px_size, colors.BLUE_DARK, fg_color, rot=rot, width=2,
+                                                inset=2)))
+
+        for (xy, img) in imgs:
+            surf.blit(img, (self.goals_area[0] + 1 + xy[0],
+                            self.goals_area[1] + xy[1]))
 
     def render_temperature(self, surf: pygame.Surface):
-        # pygame.draw.rect(surf, colors.BOARD_LINE_COLOR, self.scoring_area, width=1)
-        h = sprites.Sheet.THERMO_BG_UPPER.get_size()[1]
-        surf.blit(sprites.Sheet.THERMO_BG_UPPER, self.scoring_area)
+        w, h = sprites.Sheet.THERMO_BG_UPPER.get_size()
+        surf.blit(sprites.Sheet.THERMO_BG_UPPER, self.thermo_area)
         y_min, y_max = sprites.Sheet.THERMO_Y_RANGE
         thermo_y = y_min + (1 - self.gs.get_temperature()) * (y_max - y_min)
-        surf.blit(sprites.Sheet.THERMO, (self.scoring_area[0] + 5, self.scoring_area[1] + thermo_y))
-        surf.blit(sprites.Sheet.THERMO_BG_LOWER, (self.scoring_area[0], self.scoring_area[1] + h))
+        surf.blit(sprites.Sheet.THERMO, (self.thermo_area[0] + 5, self.thermo_area[1] + thermo_y))
+        surf.blit(sprites.Sheet.THERMO_BG_LOWER, (self.thermo_area[0], self.thermo_area[1] + h))
+
+        extra_rect = [self.thermo_area[0] + w + 1,
+                      self.thermo_area[1] + 1,
+                      self.thermo_area[2] - w - 2,
+                      self.thermo_area[3] - 2]
+        pygame.draw.rect(surf, colors.BLUE_DARK, extra_rect, width=0)
+        pygame.draw.rect(surf, colors.BLUE_MID, extra_rect, width=1)
+
+        numeral_imgs = sprites.Sheet.get_numerals(self.gs.completed_count)
+        for i in range(len(numeral_imgs)):
+            img = numeral_imgs[i]
+            x = (i % 3) * img.get_size()[0] + extra_rect[0] + 2
+            y = (i // 3) * img.get_size()[1] + extra_rect[1] + 1
+            surf.blit(img, (x, y))
+
+        goal_line_y = (self.gs.level_complete_count // 15) * sprites.Sheet.NUMERAL_SIZE[1]
+        surf.blit(sprites.Sheet.GOAL_LINE, (extra_rect[0] + 2, extra_rect[1] + goal_line_y))
+
+    def render_score(self, surf: pygame.Surface):
+        surf.blit(sprites.Sheet.SCORE_BG, self.scoring_area)
+        xy_offs = (3, 2)
+        score_text = str(self.gs.score)
+        rendered_text = sprites.Sheet.FONT.render(score_text, True, colors.WHITE)
+        surf.blit(rendered_text, utils.add(self.scoring_area[:2], xy_offs))
 
     def render_board(self, surf: pygame.Surface):
         pygame.draw.rect(surf, colors.BLUE_MID, utils.rect_expand(self.remaining_area, all_sides=-1), width=0)
 
         # background
         true_bg_poly = geometry.Polygon([self.board_xy_to_screen_xy(v) for v in self.gs.board_bg_polygon.vertices])
-        inner_bg_poly = true_bg_poly.expand_from_center(6)
-        outer_bg_poly = inner_bg_poly.expand_from_center(6)
+        inner_bg_poly = true_bg_poly.expand_from_center(INNER_EXPANSION)
+        outer_bg_poly = inner_bg_poly.expand_from_center(OUTER_EXPANSION)
         pygame.draw.polygon(surf, colors.BLUE_DARK, outer_bg_poly.vertices)
 
         center = outer_bg_poly.avg_pt()

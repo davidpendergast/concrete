@@ -1,17 +1,20 @@
 import pygame
 import typing
 import random
+import time
 
 import src.geometry as geometry
 import src.gameplay as gameplay
 import src.utils as utils
-import src.colors as colors
 
 class PolygonGoal:
 
     def __init__(self, polygon: geometry.Polygon):
         self.polygon = polygon.normalize()
         self.actual: 'gameplay.BoardRegion' = None
+        self.data = {
+            "rand": random.random()
+        }
 
     def is_satisfied_by(self, region):
         return self.polygon.is_equivalent_by_angles_and_edge_ratios(region.polygon)

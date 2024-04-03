@@ -8,15 +8,16 @@ import src.spites as sprites
 
 
 if __name__ == "__main__":
+    pygame.init()
     screen = utils.make_fancy_scaled_display(
         const.GAME_DIMS,
         scale_factor=2.,
         extra_flags=pygame.RESIZABLE
     )
-
     pygame.display.set_caption(const.NAME_OF_GAME)
 
-    sprites.Sheet.load(utils.res_path("assets/sprites.png"))
+    sprites.Sheet.load(utils.res_path("assets/sprites.png"),
+                       utils.res_path("assets/fonts/m6x11.ttf"))
 
     clock = pygame.time.Clock()
     dt = 0
