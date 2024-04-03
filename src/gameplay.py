@@ -38,6 +38,8 @@ class GameState:
         self.completed_count = 0
         self.level_complete_count = 15
 
+        self.finishing_goals_still_moving = []
+
         self.buffer_zone = 0.05
         self.max_temperature = 1.0
         self.temperature = 0.666
@@ -100,7 +102,7 @@ class GameState:
         self.score += int(100 * pcnt_of_board) * 10
         self.add_temperature(0.8 * self.max_temperature * pcnt_of_board)
 
-    def update_goals(self, dt):
+    def update_goals(self, dt, region_to_animator_mapping):
         # update active goals
         keep_goals = []
         for goal in self.goals:
@@ -134,9 +136,26 @@ class GameState:
             if goal.is_satisfied_and_finished():
                 # remove the goal and its board region
                 self.remove_region(goal.actual)
+
+                animator_bb = region_to_animator_mapping[goal.actual] if goal.actual in region_to_animator_mapping else None
+                if animator_bb is not None:
+                    img = animator_bb[0].get_image()
+                    bb = animator_bb[1]
+                    self.finishing_goals_still_moving.append(((0, 0), 512, 0, 30 * (random.random() - 0.5), goal, img, bb))
             else:
                 keep.append(goal)
         self.satisfied_goals = keep
+
+        keep = []
+        for (xy, yvel, rot, rot_rate, goal, img, bb) in self.finishing_goals_still_moving:
+            yvel += 128 * dt / 1000  # px per sec of acceleration
+            xy = (xy[0], xy[1] + yvel * dt / 1000)
+            if xy[1] > const.GAME_DIMS[1]:
+                continue
+            else:
+                rot += rot_rate * dt / 1000
+            keep.append((xy, yvel, rot, rot_rate, goal, img, bb))
+        self.finishing_goals_still_moving = keep
 
     def update_temperature(self, dt):
         decay = self.decay_rate * self.max_temperature * dt / 1000
@@ -146,9 +165,9 @@ class GameState:
         self.temperature = min(self.temperature + val,
                                self.max_temperature + self.max_temperature * self.buffer_zone)
 
-    def update(self, dt):
+    def update(self, dt, region_to_animator_mapping):
         self.update_regions(dt)
-        self.update_goals(dt)
+        self.update_goals(dt, region_to_animator_mapping)
         self.update_temperature(dt)
 
 
@@ -510,7 +529,7 @@ class GameplayScene(scenes.Scene):
 
         self.handle_board_mouse_events()
 
-        self.gs.update(dt)
+        self.gs.update(dt, self.region_to_animator_mapping)  # i fucked up here
 
         self._update_animations(dt)
 
@@ -675,6 +694,7 @@ class GameplayScene(scenes.Scene):
         self.render_goals(surf)
         self.render_temperature(surf)
         self.render_score(surf)
+        self.render_moving_regions(surf)
 
     def render_goals(self, surf: pygame.Surface):
         pygame.draw.rect(surf, colors.BLACK, self.goals_area)
@@ -798,6 +818,10 @@ class GameplayScene(scenes.Scene):
         for peg in self.gs.board.pegs:  # nodes
             pygame.draw.circle(surf, colors.BLACK, self.board_xy_to_screen_xy(peg), 5)
             pygame.draw.circle(surf, colors.WHITE, self.board_xy_to_screen_xy(peg), 3)
+
+    def render_moving_regions(self, surf):
+        for (xy, yvel, rot, rot_rate, goal, img, bb) in self.gs.finishing_goals_still_moving:
+            surf.blit(img, (bb[0], bb[1] + xy[1]))
 
     def get_bg_color(self):
         return colors.DARK_GRAY
