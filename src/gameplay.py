@@ -13,6 +13,7 @@ import src.geometry as geometry
 from src.geometry import Edge, EdgeSet
 import src.goals as goals
 import src.cementfill as cementfill
+import src.spites as sprites
 
 class GameState:
 
@@ -31,6 +32,18 @@ class GameState:
         self.goals: typing.List[goals.PolygonGoal] = [None] * const.N_GOALS  # active_goals
         self.satisfied_goals = []
         self.completed_count = 0
+
+        self.buffer_zone = 0.2
+        self.max_temperature = 1.0
+        self.temperature = 0.333
+        self.decay_rate = 0.03  # percent max per second
+
+        self.score = 0
+
+    def get_temperature(self, normalize=True):
+        if normalize:
+            return min(1.0, max(0, self.temperature / self.max_temperature))
+        return self.temperature
 
     def update_regions(self, dt):
         old_regions = set(self.current_regions)  # recalc in case updates caused deletions
@@ -75,6 +88,13 @@ class GameState:
         self.completed_count += 1
         print(f"INFO: completed goal {goal} (count={self.completed_count})")
 
+        board_bb = utils.bounding_box(self.board_bg_polygon.vertices)
+        bb = utils.bounding_box(goal.actual.polygon.vertices)
+        pcnt_of_board = bb[2] * bb[3] / (board_bb[2] * board_bb[3])
+
+        self.score += int(100 * pcnt_of_board) * 10
+        self.add_temperature(0.8 * self.max_temperature * pcnt_of_board)
+
     def update_goals(self, dt):
         # update active goals
         for i in range(len(self.goals)):
@@ -103,9 +123,18 @@ class GameState:
                 keep.append(goal)
         self.satisfied_goals = keep
 
+    def update_temperature(self, dt):
+        decay = self.decay_rate * self.max_temperature * dt / 1000
+        self.temperature -= decay
+
+    def add_temperature(self, val):
+        self.temperature = min(self.temperature + val,
+                               self.max_temperature + self.max_temperature * self.buffer_zone)
+
     def update(self, dt):
         self.update_regions(dt)
         self.update_goals(dt)
+        self.update_temperature(dt)
 
 
 class BoardRegion:
@@ -618,7 +647,13 @@ class GameplayScene(scenes.Scene):
                 surf.blit(img, (self.goals_area[0] + 1, self.goals_area[1] + (px_size + 2) * idx))
 
     def render_temperature(self, surf: pygame.Surface):
-        pygame.draw.rect(surf, colors.BOARD_LINE_COLOR, self.scoring_area, width=1)
+        # pygame.draw.rect(surf, colors.BOARD_LINE_COLOR, self.scoring_area, width=1)
+        h = sprites.Sheet.THERMO_BG_UPPER.get_size()[1]
+        surf.blit(sprites.Sheet.THERMO_BG_UPPER, self.scoring_area)
+        y_min, y_max = sprites.Sheet.THERMO_Y_RANGE
+        thermo_y = y_min + (1 - self.gs.get_temperature()) * (y_max - y_min)
+        surf.blit(sprites.Sheet.THERMO, (self.scoring_area[0] + 5, self.scoring_area[1] + thermo_y))
+        surf.blit(sprites.Sheet.THERMO_BG_LOWER, (self.scoring_area[0], self.scoring_area[1] + h))
 
     def render_board(self, surf: pygame.Surface):
         pygame.draw.rect(surf, colors.BLUE_MID, utils.rect_expand(self.remaining_area, all_sides=-1), width=0)

@@ -4,6 +4,7 @@ import const
 import src.scenes as scenes
 import src.utils as utils
 import src.gameplay as gameplay
+import src.spites as sprites
 
 
 if __name__ == "__main__":
@@ -14,6 +15,8 @@ if __name__ == "__main__":
     )
 
     pygame.display.set_caption(const.NAME_OF_GAME)
+
+    sprites.Sheet.load(utils.res_path("assets/sprites.png"))
 
     clock = pygame.time.Clock()
     dt = 0

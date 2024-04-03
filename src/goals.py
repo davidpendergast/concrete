@@ -11,7 +11,7 @@ class PolygonGoal:
 
     def __init__(self, polygon: geometry.Polygon):
         self.polygon = polygon.normalize()
-        self.actual = None
+        self.actual: 'gameplay.BoardRegion' = None
 
     def is_satisfied_by(self, region):
         return self.polygon.is_equivalent_by_angles_and_edge_ratios(region.polygon)
