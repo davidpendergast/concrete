@@ -16,6 +16,8 @@ class Sheet:
     NUMERAL_SIZE = (12, 12)
     GOAL_LINE = None
 
+    DECORATION_BANNER = None
+
     FONT = None
 
     @staticmethod
@@ -42,6 +44,7 @@ class Sheet:
         Sheet.THERMO_BG_LOWER = sheet.subsurface(_THERMO_BG_LOWER)
         Sheet.THERMO = sheet.subsurface(_THERMO)
         Sheet.GOAL_LINE = sheet.subsurface([128, 32, 36, 16])
+        Sheet.DECORATION_BANNER = sheet.subsurface([0, 256, 183, 20])
 
         n_types = 2
         xy = (64, 32)

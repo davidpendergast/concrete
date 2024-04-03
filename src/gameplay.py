@@ -736,6 +736,11 @@ class GameplayScene(scenes.Scene):
     def render_board(self, surf: pygame.Surface):
         pygame.draw.rect(surf, colors.BLUE_MID, utils.rect_expand(self.remaining_area, all_sides=-1), width=0)
 
+        decoration_rect = [0, 0, *sprites.Sheet.DECORATION_BANNER.get_size()]
+        decoration_rect = utils.center_rect_in_rect(decoration_rect, self.remaining_area)
+        decoration_rect[1] = self.remaining_area[1] + self.remaining_area[3] - decoration_rect[3] - 3
+        surf.blit(sprites.Sheet.DECORATION_BANNER, decoration_rect)
+
         # background
         true_bg_poly = geometry.Polygon([self.board_xy_to_screen_xy(v) for v in self.gs.board_bg_polygon.vertices])
         inner_bg_poly = true_bg_poly.expand_from_center(INNER_EXPANSION)
