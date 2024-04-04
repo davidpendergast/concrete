@@ -26,8 +26,7 @@ DATA_TO_BUNDLE = [
     ("assets", "assets")
 ]
 DATA_TO_COPY = [
-    # ("levels", "levels"),
-    # ("info.txt", "info.txt")
+    ("info.txt", "info.txt")
 ]
 
 #### END OPTIONS ####

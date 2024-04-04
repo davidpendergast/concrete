@@ -1,0 +1,32 @@
+
+-----------
+ Slabferno
+-----------
+
+By Ghast.
+
+This is a geometric puzzle game about pouring slabs of concrete and waiting for them to dry. 
+
+The mechanics are explained in-game. Also, you're in Hell. 
+
+See how long you can last!
+
+Controls:
+  Click and drag to draw lines in the grid.
+  Right-click to erase lines.
+  [Esc] to terminate a run early.
+  
+Credits:
+  Art, Code, and Design by Ghast
+  
+  Color Palette: MAGGOT24 by gawrone
+  Font: m6x11 by Daniel Linssen
+  Sound effects generated using jfxr
+  Music generated using soundraw.io
+
+Made in 1 Week for Pygame Community Easter Jam 2024.
+
+The theme was 'Temperature'.
+
+Made with Pygame
+ 
