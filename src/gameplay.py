@@ -52,6 +52,9 @@ class GameState:
             return min(1.0, max(0.0, self.temperature / self.max_temperature))
         return self.temperature
 
+    def is_game_over(self):
+        return self.get_temperature() <= 0
+
     def update_regions(self, dt):
         old_regions = set(self.current_regions)  # recalc in case updates caused deletions
         new_regions = set(self.board.calc_regions())
@@ -137,8 +140,8 @@ class GameState:
                 # remove the goal and its board region
                 self.remove_region(goal.actual)
 
-                animator_bb = region_to_animator_mapping[goal.actual] if goal.actual in region_to_animator_mapping else None
-                if animator_bb is not None:
+                if region_to_animator_mapping is not None and goal.actual in region_to_animator_mapping:
+                    animator_bb = region_to_animator_mapping[goal.actual]
                     img = animator_bb[0].get_image()
                     bb = animator_bb[1]
                     self.finishing_goals_still_moving.append(((0, 0), 512, 0, 30 * (random.random() - 0.5), goal, img, bb))
@@ -476,6 +479,9 @@ class Board:
         return regions
 
 
+def fresh_gameplay_scene() -> 'GameplayScene':
+    return GameplayScene(GameState())
+
 class GameplayScene(scenes.Scene):
 
     def __init__(self, gs: GameState):
@@ -486,6 +492,8 @@ class GameplayScene(scenes.Scene):
 
         w = const.GAME_DIMS[0] / 5
         self.thermo_area = [const.GAME_DIMS[0] - w, 0, w, const.GAME_DIMS[1]]
+        self.thermo_width = sprites.Sheet.THERMO_BG_UPPER.get_width()
+        self.tally_width = self.thermo_area[2] - self.thermo_width
 
         self.remaining_area = [self.goals_area[0] + self.goals_area[2], 0,
                                const.GAME_DIMS[0] - self.goals_area[2] - self.thermo_area[2],
@@ -506,30 +514,29 @@ class GameplayScene(scenes.Scene):
         self.rot_time = 0
         self.region_to_animator_mapping = {}
 
-    def update(self, dt):
+    def update(self, dt, fake=False):
         super().update(dt)
 
-        if pygame.K_r in const.KEYS_PRESSED_THIS_FRAME:
+        if const.IS_DEV and pygame.K_r in const.KEYS_PRESSED_THIS_FRAME:
             self.board_style_idx += 1
             style = const.BOARD_STYLES[self.board_style_idx % len(const.BOARD_STYLES)]
             print(f"INFO: activating new board style {style}")
             self.gs = GameState(style)
             self.cancel_current_drag()
 
-        if pygame.K_p in const.KEYS_PRESSED_THIS_FRAME:
+        if const.IS_DEV and pygame.K_p in const.KEYS_PRESSED_THIS_FRAME:
             const.SHOW_POLYGONS = not const.SHOW_POLYGONS
 
-        if pygame.K_f in const.KEYS_PRESSED_THIS_FRAME:
+        if const.IS_DEV and pygame.K_f in const.KEYS_PRESSED_THIS_FRAME:
             goals.PolygonGoalFactory.subdivide_board(self.gs.board, goals.GoalGenParams())
 
-        if pygame.K_SPACE not in const.KEYS_HELD_THIS_FRAME:
-            self.rot_time += dt  # space to slow the diabolical rotation
-        else:
-            self.rot_time += dt / 15
+        if not fake:
+            self.handle_board_mouse_events()
+            self.gs.update(dt, self.region_to_animator_mapping)  # i fucked up here
 
-        self.handle_board_mouse_events()
-
-        self.gs.update(dt, self.region_to_animator_mapping)  # i fucked up here
+            if self.gs.is_game_over() or pygame.K_ESCAPE in const.KEYS_PRESSED_THIS_FRAME:
+                import src.textscenes as textscenes
+                self.manager.jump_to_scene(textscenes.GameOverScene(underlay=self))
 
         self._update_animations(dt)
 
@@ -569,11 +576,6 @@ class GameplayScene(scenes.Scene):
             if 'xy' in goal.data:
                 x, y = goal.data['xy']
                 goal.data['xy'] = (x - fling_speed * dt / 1000, y)
-
-
-
-
-
 
     def cancel_current_drag(self):
         self.potential_edge = None
@@ -689,8 +691,8 @@ class GameplayScene(scenes.Scene):
         vertices = [self.board_xy_to_screen_xy(pt) for pt in polygon.vertices]
         pygame.draw.polygon(surf, color, vertices, width=width)
 
-    def render(self, surf: pygame.Surface):
-        self.render_board(surf)
+    def render(self, surf: pygame.Surface, skip_board=False):
+        self.render_board(surf, skip_board=skip_board)
         self.render_goals(surf)
         self.render_temperature(surf)
         self.render_score(surf)
@@ -753,7 +755,7 @@ class GameplayScene(scenes.Scene):
         rendered_text = sprites.Sheet.FONT.render(score_text, True, colors.WHITE)
         surf.blit(rendered_text, utils.add(self.scoring_area[:2], xy_offs))
 
-    def render_board(self, surf: pygame.Surface):
+    def render_board(self, surf: pygame.Surface, skip_board=False):
         pygame.draw.rect(surf, colors.BLUE_MID, utils.rect_expand(self.remaining_area, all_sides=-1), width=0)
 
         decoration_rect = [0, 0, *sprites.Sheet.DECORATION_BANNER.get_size()]
@@ -780,44 +782,45 @@ class GameplayScene(scenes.Scene):
 
         pygame.draw.polygon(surf, colors.BLACK, inner_bg_poly.vertices)
 
-        if const.SHOW_POLYGONS:
+        if const.IS_DEV and const.SHOW_POLYGONS:
             for idx, poly in enumerate(self.gs.board.calc_polygons()):
                 self._render_polygon(surf, poly, colors.TONES[idx % len(colors.TONES)])
 
-        color_overrides = {}  # Edge -> color
-        if self.potential_edge is not None:
-            for key in self.potential_edge_problems:
-                for e_val in self.potential_edge_problems[key]:
-                    color_overrides[e_val] = colors.REDS[4]
+        if not skip_board:
+            color_overrides = {}  # Edge -> color
+            if self.potential_edge is not None:
+                for key in self.potential_edge_problems:
+                    for e_val in self.potential_edge_problems[key]:
+                        color_overrides[e_val] = colors.REDS[4]
 
-        for (r, (animator, bb)) in self.region_to_animator_mapping.items():
-            img = animator.get_image()
-            surf.blit(img, bb)
+            for (r, (animator, bb)) in self.region_to_animator_mapping.items():
+                img = animator.get_image()
+                surf.blit(img, bb)
 
-        for edge in self.gs.board.outer_edges:  # outline
-            color = color_overrides[edge] if edge in color_overrides else colors.WHITE
-            self._render_edge(surf, edge, color, width=1)
+            for edge in self.gs.board.outer_edges:  # outline
+                color = color_overrides[edge] if edge in color_overrides else colors.WHITE
+                self._render_edge(surf, edge, color, width=1)
 
-        for edge in self.gs.board.user_edges:
-            color = color_overrides[edge] if edge in color_overrides else colors.WHITE
-            self._render_edge(surf, edge, color, width=2)
+            for edge in self.gs.board.user_edges:
+                color = color_overrides[edge] if edge in color_overrides else colors.WHITE
+                self._render_edge(surf, edge, color, width=2)
 
-        if self.potential_edge is not None:
-            if len(self.potential_edge_problems) is None:
-                color = colors.WHITE
-            elif 'overlaps' in self.potential_edge_problems:
-                color = colors.REDS[3]
-            elif 'overlaps_outer' in self.potential_edge_problems:
-                color = colors.REDS[3]
-            elif 'intersects' in self.potential_edge_problems:
-                color = colors.REDS[3]
-            else:
-                color = colors.LIGHT_GRAY
-            self._render_edge(surf, self.potential_edge, color, width=3)
+            if self.potential_edge is not None:
+                if len(self.potential_edge_problems) is None:
+                    color = colors.WHITE
+                elif 'overlaps' in self.potential_edge_problems:
+                    color = colors.REDS[3]
+                elif 'overlaps_outer' in self.potential_edge_problems:
+                    color = colors.REDS[3]
+                elif 'intersects' in self.potential_edge_problems:
+                    color = colors.REDS[3]
+                else:
+                    color = colors.LIGHT_GRAY
+                self._render_edge(surf, self.potential_edge, color, width=3)
 
-        for peg in self.gs.board.pegs:  # nodes
-            pygame.draw.circle(surf, colors.BLACK, self.board_xy_to_screen_xy(peg), 5)
-            pygame.draw.circle(surf, colors.WHITE, self.board_xy_to_screen_xy(peg), 3)
+            for peg in self.gs.board.pegs:  # nodes
+                pygame.draw.circle(surf, colors.BLACK, self.board_xy_to_screen_xy(peg), 5)
+                pygame.draw.circle(surf, colors.WHITE, self.board_xy_to_screen_xy(peg), 3)
 
     def render_moving_regions(self, surf):
         for (xy, yvel, rot, rot_rate, goal, img, bb) in self.gs.finishing_goals_still_moving:

@@ -2,6 +2,7 @@ import pygame
 import const
 
 import src.scenes as scenes
+import src.textscenes as morescenes
 import src.utils as utils
 import src.gameplay as gameplay
 import src.spites as sprites
@@ -22,8 +23,7 @@ if __name__ == "__main__":
     clock = pygame.time.Clock()
     dt = 0
 
-    gs = gameplay.GameState()
-    scene_manager = scenes.SceneManager(gameplay.GameplayScene(gs))
+    scene_manager = scenes.SceneManager(morescenes.MainMenuScene())
 
     running = True
     while running and not scene_manager.should_quit:

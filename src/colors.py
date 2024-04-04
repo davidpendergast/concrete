@@ -1,3 +1,7 @@
+import time
+import math
+import src.utils as utils
+
 import pygame
 
 BLACK = pygame.Color('#201114')
@@ -37,4 +41,11 @@ TONES = [
     pygame.Color('#492b1d'),
     pygame.Color('#212226')
 ]
+
+def lerp_color(c1, c2, t='sin'):
+    if t == 'sin':
+        t = (1 + math.sin(time.time() * math.pi)) / 2
+    return utils.lerp(c1, c2, t)
+
+
 

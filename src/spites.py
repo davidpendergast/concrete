@@ -18,7 +18,8 @@ class Sheet:
 
     DECORATION_BANNER = None
 
-    FONT = None
+    FONT: pygame.Font = None
+    TITLE_FONT: pygame.Font = None
 
     @staticmethod
     def get_numerals(total_val, rng_seed=12345):
@@ -56,3 +57,4 @@ class Sheet:
             Sheet.NUMERALS.append(type_vals)
 
         Sheet.FONT = pygame.Font(font_path)
+        Sheet.TITLE_FONT = pygame.Font(font_path, size=32)
