@@ -6,12 +6,14 @@ import src.textscenes as morescenes
 import src.utils as utils
 import src.spites as sprites
 import src.sounds as sounds
+import src.colors as colors
 
 if __name__ == "__main__":
     pygame.init()
     screen = utils.make_fancy_scaled_display(
         const.GAME_DIMS,
         scale_factor=2.,
+        outer_fill_color=colors.BLACK,
         extra_flags=pygame.RESIZABLE
     )
     pygame.display.set_caption(const.NAME_OF_GAME)

@@ -117,7 +117,7 @@ class InstructionsScene(BasicTextScene):
         "When you complete slabs, the heat will increase.",
         "Slabs will cure faster when the temperature is higher.",
         "If your heat runs out, you're fired.",
-        "A score is kept above.",  # 11
+        "Your score is shown above.",  # 11
         "Good luck."  # 12
     ]
 
