@@ -20,6 +20,8 @@ class Sheet:
     DECORATION_BANNER = None
     DEMON_DADDY = None
 
+    ICON_IMG = None
+
     FONT: pygame.Font = None
     TITLE_FONT: pygame.Font = None
 
@@ -40,7 +42,7 @@ class Sheet:
             return ret
 
     @staticmethod
-    def load(filepath, font_path):
+    def load(filepath, font_path, icon_path):
         sheet = pygame.image.load(filepath)
         Sheet.SCORE_BG = sheet.subsurface(_SCORE_BG)
         Sheet.THERMO_BG_UPPER = sheet.subsurface(_THERMO_BG_UPPER)
@@ -49,6 +51,7 @@ class Sheet:
         Sheet.GOAL_LINE = sheet.subsurface([128, 32, 36, 16])
         Sheet.DECORATION_BANNER = sheet.subsurface([0, 256, 183, 20])
         Sheet.DEMON_DADDY = sheet.subsurface([64, 80, 64, 120])
+        Sheet.ICON_IMG = pygame.image.load(icon_path)
 
         n_types = 2
         xy = (64, 32)

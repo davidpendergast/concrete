@@ -19,7 +19,10 @@ if __name__ == "__main__":
     pygame.display.set_caption(const.NAME_OF_GAME)
 
     sprites.Sheet.load(utils.res_path("assets/sprites.png"),
-                       utils.res_path("assets/fonts/m6x11.ttf"))
+                       utils.res_path("assets/fonts/m6x11.ttf"),
+                       utils.res_path("assets/icon_48x48.png"))
+
+    pygame.display.set_icon(sprites.Sheet.ICON_IMG)
 
     sounds.initialize(utils.res_path("assets/sounds"))
     sounds.play_song(utils.res_path("assets/sounds/ai_song_fixed.ogg"), volume=0.333)
