@@ -1,24 +1,10 @@
 import os
 
-import pygame
-import src.utils as utils
-
-NAME_OF_GAME = "Diabolical Slabs"
+NAME_OF_GAME = "Slabferno"
 GAME_DIMS = (320, 240)
 BOARD_SIZE = 160
 THRESH = 0.0001
 N_GOALS = 4
-
-BOARD_STYLES = [
-    # ("SQUARE", 2),
-    ("SQUARE", 4),
-    ("SQUARE", 5),
-    ("RECT", (3, 5)),
-    ("RECT", (4, 3)),
-    ("HEX", (5, 5)),  # small_edge_bias=0.5, pcnt_edges_to_try=0.2
-    # ("HEX", (3, 3)),
-    ("HEX", (3, 5))
-]
 
 IS_DEV = os.path.exists(".gitignore")
 

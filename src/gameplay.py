@@ -58,7 +58,7 @@ class GameState:
 
     def next_level(self) -> 'GameState':
         new_idx = self.level_idx + 1
-        if new_idx > len(levels.LEVELS):
+        if new_idx >= len(levels.LEVELS):
             return None  # finished !
         else:
             gs = GameState(level_idx=new_idx)
@@ -125,7 +125,7 @@ class GameState:
         bb = utils.bounding_box(goal.actual.polygon.vertices)
         pcnt_of_board = bb[2] * bb[3] / (board_bb[2] * board_bb[3])
 
-        self.score += int(100 * pcnt_of_board) * 10
+        self.score += int(100 * pcnt_of_board) * len(goal.actual.polygon.get_angles()) * 10
         self.add_temperature(self.level.boost_rate * self.max_temperature * pcnt_of_board)
 
     def update_goals(self, dt, region_to_animator_mapping):
@@ -650,7 +650,7 @@ class GameplayScene(scenes.Scene):
                                             raise ValueError(f"Failed to add edge {e} even though "
                                                              f"we removed everything it intersected with?")
                                         added_anyways = True
-                                        sounds.play_sound("delete_line")
+                                        sounds.play_sound("delete_line", volume=0.5)
                             if not added_anyways:
                                 sounds.play_sound('back')  # failed to add edge
                     else:
@@ -670,10 +670,10 @@ class GameplayScene(scenes.Scene):
             b_xy = self.screen_xy_to_board_xy(scr_xy)
             edge = self.gs.board.get_closest_edge(b_xy, max_dist=click_dist, including_outer=False)
             if edge is not None and self.can_remove_edge(edge):
-                sounds.play_sound("delete_line")  # deleted line
+                sounds.play_sound("delete_line", volume=0.5)  # deleted line
                 self.gs.board.remove_user_edge(edge)
 
-        if self.potential_edge is not None:
+        if self.potential_edge is not None and const.MOUSE_XY is not None:
             b_xy = self.screen_xy_to_board_xy(const.MOUSE_XY)
             dest_node = self.gs.board.get_closest_node(b_xy, max_dist=click_dist)
             if dest_node is None or dest_node == self.potential_edge.p1:

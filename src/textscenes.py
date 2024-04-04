@@ -9,6 +9,7 @@ import src.scenes as scenes
 import src.sounds as sounds
 
 import src.gameplay as gameplay
+import src.levels as levels
 
 
 DELAY = 20
@@ -96,10 +97,10 @@ class MainMenuScene(BasicTextScene):
             elif (len(const.KEYS_PRESSED_THIS_FRAME) > 0 and pygame.K_LEFT not in const.KEYS_PRESSED_THIS_FRAME) \
                     or len(const.MOUSE_PRESSED_AT_THIS_FRAME) > 0:
                 sounds.play_sound("select")
-                if not _SAW_INSTRUCTIONS_ONCE:
-                    self.manager.jump_to_scene(InstructionsScene(underlay=self.underlay))
-                else:
+                if _SAW_INSTRUCTIONS_ONCE or pygame.K_s in const.KEYS_PRESSED_THIS_FRAME:
                     self.manager.jump_to_scene(self.underlay)
+                else:
+                    self.manager.jump_to_scene(InstructionsScene(underlay=self.underlay))
 
 
 class InstructionsScene(BasicTextScene):
@@ -169,7 +170,10 @@ class NextLevelScene(BasicTextScene):
     DELAY = 3000
 
     def __init__(self, prev_scene, next_scene):
-        super().__init__("Promoted!", f"Level {next_scene.gs.level_idx + 1}", underlay=prev_scene)
+        super().__init__(
+            "Promoted!",
+            (f"Level {next_scene.gs.level_idx + 1}" if next_scene.gs.level_idx < len(levels.LEVELS) - 1 else "Final Level"),
+            underlay=prev_scene)
         self.prev_scene = prev_scene
         self.next_scene = next_scene
 
