@@ -17,6 +17,7 @@ class Sheet:
     GOAL_LINE = None
 
     DECORATION_BANNER = None
+    DEMON_DADDY = None
 
     FONT: pygame.Font = None
     TITLE_FONT: pygame.Font = None
@@ -46,6 +47,7 @@ class Sheet:
         Sheet.THERMO = sheet.subsurface(_THERMO)
         Sheet.GOAL_LINE = sheet.subsurface([128, 32, 36, 16])
         Sheet.DECORATION_BANNER = sheet.subsurface([0, 256, 183, 20])
+        Sheet.DEMON_DADDY = sheet.subsurface([64, 80, 64, 120])
 
         n_types = 2
         xy = (64, 32)

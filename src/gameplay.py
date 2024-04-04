@@ -15,14 +15,17 @@ from src.geometry import Edge, EdgeSet
 import src.goals as goals
 import src.cementfill as cementfill
 import src.spites as sprites
+import src.levels as levels
 
 INNER_EXPANSION = 6
 OUTER_EXPANSION = 6
 
 class GameState:
 
-    def __init__(self, style=const.BOARD_STYLES[0]):
-        self.board = Board.new_board(*style)
+    def __init__(self, level_idx=0):
+        self.level_idx = level_idx
+        self.level = levels.LEVELS[level_idx % len(levels.LEVELS)]
+        self.board = Board.new_board(*self.level.style)
 
         cur_regions = self.board.calc_regions()
         self.board_bg_polygon = cur_regions[0].polygon  # only used for rendering
@@ -30,22 +33,39 @@ class GameState:
 
         params = goals.GoalGenParams()
         params.banned_polys.append(self.board_bg_polygon)
-        params.min_n_vertices = 4
+        params.banned_polys.extend(self.level.banned_polys)
+        params.min_n_vertices = self.level.min_vertices
+        params.max_n_vertices = self.level.max_vertices
 
         self.goal_generator = goals.GoalGenerator(self.board, params)
         self.goals: typing.List[goals.PolygonGoal] = []  # active_goals
         self.satisfied_goals = []
-        self.completed_count = 0
-        self.level_complete_count = 15
-
         self.finishing_goals_still_moving = []
 
-        self.buffer_zone = 0.05
+        self.overflow_zone = 0.05
         self.max_temperature = 1.0
-        self.temperature = 0.666
-        self.decay_rate = 0.03  # percent max per second
 
+        # these items carry over between levels
+        self.slabs_completed_count = 0
+        self.slabs_required_for_next_level = self.level.slab_req
+        self.temperature = 0.666
         self.score = 0
+
+    def ready_for_next_level(self):
+        return self.slabs_completed_count >= self.slabs_required_for_next_level
+
+    def next_level(self) -> 'GameState':
+        new_idx = self.level_idx + 1
+        if new_idx > len(levels.LEVELS):
+            return None  # finished !
+        else:
+            gs = GameState(level_idx=new_idx)
+            gs.temperature = self.temperature
+            gs.add_temperature(0.25)  # lil boost
+            gs.score = self.score
+            gs.slabs_completed_count += self.slabs_completed_count
+            gs.slabs_required_for_next_level += self.slabs_required_for_next_level
+            return gs
 
     def get_temperature(self, normalize=True):
         if normalize:
@@ -62,8 +82,9 @@ class GameState:
         to_keep = [r for r in old_regions if r in new_regions]
         self.current_regions = to_keep + to_add
 
+        rate = 1 + self.level.max_temp_cure_boost * self.get_temperature(normalize=True)
         for r in self.current_regions:
-            r.update(dt)
+            r.update(dt, rate=rate)
 
     def remove_region(self, region):
         self.current_regions.remove(region)
@@ -95,15 +116,15 @@ class GameState:
         return True
 
     def satisfied_goal(self, goal):
-        self.completed_count += 1
-        print(f"INFO: completed goal {goal} (count={self.completed_count})")
+        self.slabs_completed_count += 1
+        print(f"INFO: completed goal {goal} (count={self.slabs_completed_count})")
 
         board_bb = utils.bounding_box(self.board_bg_polygon.vertices)
         bb = utils.bounding_box(goal.actual.polygon.vertices)
         pcnt_of_board = bb[2] * bb[3] / (board_bb[2] * board_bb[3])
 
         self.score += int(100 * pcnt_of_board) * 10
-        self.add_temperature(0.8 * self.max_temperature * pcnt_of_board)
+        self.add_temperature(self.level.boost_rate * self.max_temperature * pcnt_of_board)
 
     def update_goals(self, dt, region_to_animator_mapping):
         # update active goals
@@ -114,7 +135,7 @@ class GameState:
                 for region in self.current_regions:
                     if not region.is_satisfying_goal() and goal.is_satisfied_by(region):
                         goal.set_satisfied(region)
-                        region.set_satisfying_goal(goal)
+                        region.set_satisfying_goal(goal, cure_time=self.level.base_cure_time)
                         keep = False
                         self.satisfied_goals.append(goal)
                         self.satisfied_goal(goal)
@@ -161,12 +182,12 @@ class GameState:
         self.finishing_goals_still_moving = keep
 
     def update_temperature(self, dt):
-        decay = self.decay_rate * self.max_temperature * dt / 1000
+        decay = self.level.decay_rate * self.max_temperature * dt / 1000
         self.temperature -= decay
 
     def add_temperature(self, val):
         self.temperature = min(self.temperature + val,
-                               self.max_temperature + self.max_temperature * self.buffer_zone)
+                               self.max_temperature + self.max_temperature * self.overflow_zone)
 
     def update(self, dt, region_to_animator_mapping):
         self.update_regions(dt)
@@ -183,8 +204,9 @@ class BoardRegion:
         self.satisfying_goal = None
         self.goal_time_remaining = 5
 
-    def set_satisfying_goal(self, goal):
+    def set_satisfying_goal(self, goal, cure_time=5):
         self.satisfying_goal = goal
+        self.goal_time_remaining = cure_time
 
     def is_satisfying_goal(self):
         return self.satisfying_goal is not None
@@ -195,9 +217,9 @@ class BoardRegion:
     def blocks_edge_removal(self):
         return self.is_satisfying_goal() and not self.is_done()
 
-    def update(self, dt):
+    def update(self, dt, rate=1):
         if self.is_satisfying_goal():
-            self.goal_time_remaining -= dt / 1000
+            self.goal_time_remaining -= (dt / 1000) * rate
 
     def __hash__(self):
         return hash(self.edges)
@@ -518,11 +540,7 @@ class GameplayScene(scenes.Scene):
         super().update(dt)
 
         if const.IS_DEV and pygame.K_r in const.KEYS_PRESSED_THIS_FRAME:
-            self.board_style_idx += 1
-            style = const.BOARD_STYLES[self.board_style_idx % len(const.BOARD_STYLES)]
-            print(f"INFO: activating new board style {style}")
-            self.gs = GameState(style)
-            self.cancel_current_drag()
+            self.gs.slabs_completed_count += self.gs.level.slab_req
 
         if const.IS_DEV and pygame.K_p in const.KEYS_PRESSED_THIS_FRAME:
             const.SHOW_POLYGONS = not const.SHOW_POLYGONS
@@ -537,6 +555,13 @@ class GameplayScene(scenes.Scene):
             if self.gs.is_game_over() or pygame.K_ESCAPE in const.KEYS_PRESSED_THIS_FRAME:
                 import src.textscenes as textscenes
                 self.manager.jump_to_scene(textscenes.GameOverScene(underlay=self))
+            elif self.gs.ready_for_next_level():
+                import src.textscenes as textscenes
+                next_gs = self.gs.next_level()
+                if next_gs is None:
+                    self.manager.jump_to_scene(textscenes.YouWinScene(underlay=self))
+                else:
+                    self.manager.jump_to_scene(textscenes.NextLevelScene(self, GameplayScene(next_gs)))
 
         self._update_animations(dt)
 
@@ -550,7 +575,7 @@ class GameplayScene(scenes.Scene):
             if n.is_satisfying_goal() and n not in self.region_to_animator_mapping:
                 screen_poly = geometry.Polygon([self.board_xy_to_screen_xy(v) for v in n.polygon.vertices])
                 bb = utils.bounding_box(screen_poly.vertices)
-                filler = cementfill.Filler(screen_poly, bb, total_time=n.goal_time_remaining, fill_time_pcnt=0.333)
+                filler = cementfill.Filler(screen_poly, bb, total_time=n.goal_time_remaining, fill_time_pcnt=0.5)
                 self.region_to_animator_mapping[n] = (filler, bb)
 
         for (k, v) in self.region_to_animator_mapping.items():
@@ -662,6 +687,10 @@ class GameplayScene(scenes.Scene):
         return ((screen_xy[0] - self.board_area[0]) / self.board_area[2],
                 (screen_xy[1] - self.board_area[1]) / self.board_area[3])
 
+    def get_board_bb_onscreen(self):
+        pts = [self.board_xy_to_screen_xy(v) for v in self.gs.board_bg_polygon.vertices]
+        return utils.bounding_box(pts)
+
     def screen_dist_to_board_dist(self, px):
         return px / self.board_area[2]
 
@@ -738,14 +767,14 @@ class GameplayScene(scenes.Scene):
         pygame.draw.rect(surf, colors.BLUE_DARK, extra_rect, width=0)
         pygame.draw.rect(surf, colors.BLUE_MID, extra_rect, width=1)
 
-        numeral_imgs = sprites.Sheet.get_numerals(self.gs.completed_count)
+        numeral_imgs = sprites.Sheet.get_numerals(self.gs.slabs_completed_count)
         for i in range(len(numeral_imgs)):
             img = numeral_imgs[i]
             x = (i % 3) * img.get_size()[0] + extra_rect[0] + 2
             y = (i // 3) * img.get_size()[1] + extra_rect[1] + 1
             surf.blit(img, (x, y))
 
-        goal_line_y = (self.gs.level_complete_count // 15) * sprites.Sheet.NUMERAL_SIZE[1]
+        goal_line_y = (self.gs.slabs_required_for_next_level // 15) * sprites.Sheet.NUMERAL_SIZE[1]
         surf.blit(sprites.Sheet.GOAL_LINE, (extra_rect[0] + 2, extra_rect[1] + goal_line_y))
 
     def render_score(self, surf: pygame.Surface):
