@@ -16,9 +16,11 @@ import src.goals as goals
 import src.cementfill as cementfill
 import src.spites as sprites
 import src.levels as levels
+import src.sounds as sounds
 
 INNER_EXPANSION = 6
 OUTER_EXPANSION = 6
+
 
 class GameState:
 
@@ -134,6 +136,7 @@ class GameState:
             if not goal.is_satisfied():
                 for region in self.current_regions:
                     if not region.is_satisfying_goal() and goal.is_satisfied_by(region):
+                        sounds.play_sound("pour")
                         goal.set_satisfied(region)
                         region.set_satisfying_goal(goal, cure_time=self.level.base_cure_time)
                         keep = False
@@ -162,6 +165,7 @@ class GameState:
                 self.remove_region(goal.actual)
 
                 if region_to_animator_mapping is not None and goal.actual in region_to_animator_mapping:
+                    sounds.play_sound("slab_slide")
                     animator_bb = region_to_animator_mapping[goal.actual]
                     img = animator_bb[0].get_image()
                     bb = animator_bb[1]
@@ -554,10 +558,12 @@ class GameplayScene(scenes.Scene):
 
             if self.gs.is_game_over() or pygame.K_ESCAPE in const.KEYS_PRESSED_THIS_FRAME:
                 import src.textscenes as textscenes
+                sounds.play_sound("death")
                 self.manager.jump_to_scene(textscenes.GameOverScene(underlay=self))
             elif self.gs.ready_for_next_level():
                 import src.textscenes as textscenes
                 next_gs = self.gs.next_level()
+                sounds.play_sound("promote", volume=0.5)
                 if next_gs is None:
                     self.manager.jump_to_scene(textscenes.YouWinScene(underlay=self))
                 else:
@@ -613,23 +619,23 @@ class GameplayScene(scenes.Scene):
         click_dist = self.screen_dist_to_board_dist(const.CLICK_DISTANCE_PX)
         if self.potential_edge is not None:
             if pygame.BUTTON_RIGHT in const.MOUSE_PRESSED_AT_THIS_FRAME:
-                # TODO sound effect (drag cancelled)
+                sounds.play_sound('back')  # drag canceled
                 self.cancel_current_drag()
             elif pygame.BUTTON_LEFT in const.MOUSE_RELEASED_AT_THIS_FRAME:
                 scr_xy = const.MOUSE_RELEASED_AT_THIS_FRAME[pygame.BUTTON_LEFT]
                 b_xy = self.screen_xy_to_board_xy(scr_xy)
                 dest_node = self.gs.board.get_closest_node(b_xy, max_dist=click_dist)
                 if dest_node is None or dest_node == self.potential_edge.p1:
-                    # TODO sound effect (drag cancelled)
+                    sounds.play_sound('back')  # drag cancelled
                     self.cancel_current_drag()
                 else:
                     new_edge = Edge(self.potential_edge.p1, dest_node)
                     if self.gs.can_add_edge(new_edge):
                         added = self.gs.board.add_user_edge(new_edge)
                         if added:
-                            pass  # TODO sound effect (added new edge)
+                            sounds.play_sound('draw_line')  # added new edge
                         else:
-                            # TODO sound effect (failed to add edge)
+                            added_anyways = False
                             if const.AUTO_REMOVE_IF_INTERSECTING:
                                 problems = self.gs.board.can_add_user_edge(new_edge, get_problems=True)
                                 if len(problems) == 1 and 'intersects' in problems:
@@ -643,8 +649,12 @@ class GameplayScene(scenes.Scene):
                                         if not self.gs.board.add_user_edge(new_edge):
                                             raise ValueError(f"Failed to add edge {e} even though "
                                                              f"we removed everything it intersected with?")
+                                        added_anyways = True
+                                        sounds.play_sound("delete_line")
+                            if not added_anyways:
+                                sounds.play_sound('back')  # failed to add edge
                     else:
-                        pass  # TODO sound effect (failed to add edge)
+                        sounds.play_sound('back')  # failed to add edge
 
                     self.cancel_current_drag()  # reset drag state
 
@@ -653,14 +663,14 @@ class GameplayScene(scenes.Scene):
             b_xy = self.screen_xy_to_board_xy(scr_xy)
             start_node = self.gs.board.get_closest_node(b_xy, max_dist=click_dist)
             if start_node is not None:
-                # TODO sound effect (started dragging)
+                sounds.play_sound("start_line")  # started dragging
                 self.potential_edge = Edge(start_node, b_xy)
         elif pygame.BUTTON_RIGHT in const.MOUSE_PRESSED_AT_THIS_FRAME:
             scr_xy = const.MOUSE_PRESSED_AT_THIS_FRAME[pygame.BUTTON_RIGHT]
             b_xy = self.screen_xy_to_board_xy(scr_xy)
             edge = self.gs.board.get_closest_edge(b_xy, max_dist=click_dist, including_outer=False)
             if edge is not None and self.can_remove_edge(edge):
-                # TODO sound effect
+                sounds.play_sound("delete_line")  # deleted line
                 self.gs.board.remove_user_edge(edge)
 
         if self.potential_edge is not None:

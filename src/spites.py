@@ -5,6 +5,7 @@ _THERMO_BG_UPPER = [0, 0, 22, 218]
 _THERMO_BG_LOWER = [0, _THERMO_BG_UPPER[1] + _THERMO_BG_UPPER[3], 22, 22]
 _THERMO = [37, 8, 12, 211]
 
+
 class Sheet:
     SCORE_BG = None
     THERMO_BG_UPPER = None

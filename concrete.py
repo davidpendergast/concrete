@@ -4,9 +4,8 @@ import const
 import src.scenes as scenes
 import src.textscenes as morescenes
 import src.utils as utils
-import src.gameplay as gameplay
 import src.spites as sprites
-
+import src.sounds as sounds
 
 if __name__ == "__main__":
     pygame.init()
@@ -19,6 +18,9 @@ if __name__ == "__main__":
 
     sprites.Sheet.load(utils.res_path("assets/sprites.png"),
                        utils.res_path("assets/fonts/m6x11.ttf"))
+
+    sounds.initialize(utils.res_path("assets/sounds"))
+    sounds.play_song(utils.res_path("assets/sounds/ai_song_fixed.ogg"), volume=0.333)
 
     clock = pygame.time.Clock()
     dt = 0

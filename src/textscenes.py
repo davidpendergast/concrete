@@ -6,6 +6,7 @@ import src.spites as sprites
 import src.colors as colors
 
 import src.scenes as scenes
+import src.sounds as sounds
 
 import src.gameplay as gameplay
 
@@ -75,6 +76,9 @@ class BasicTextScene(scenes.Scene):
             surf.blit(info_img, info_rect)
 
 
+_SAW_INSTRUCTIONS_ONCE = False
+
+
 class MainMenuScene(BasicTextScene):
 
     def __init__(self, underlay: gameplay.GameplayScene = None):
@@ -91,7 +95,11 @@ class MainMenuScene(BasicTextScene):
                 self.manager.do_quit()
             elif (len(const.KEYS_PRESSED_THIS_FRAME) > 0 and pygame.K_LEFT not in const.KEYS_PRESSED_THIS_FRAME) \
                     or len(const.MOUSE_PRESSED_AT_THIS_FRAME) > 0:
-                self.manager.jump_to_scene(InstructionsScene(underlay=self.underlay))
+                sounds.play_sound("select")
+                if not _SAW_INSTRUCTIONS_ONCE:
+                    self.manager.jump_to_scene(InstructionsScene(underlay=self.underlay))
+                else:
+                    self.manager.jump_to_scene(self.underlay)
 
 
 class InstructionsScene(BasicTextScene):
@@ -105,7 +113,7 @@ class InstructionsScene(BasicTextScene):
         "You get one tally mark for each completed slab.\n--->",  # 5
         "If you reach the quota, you'll be promoted.",
         "A temperature meter is shown to the right.\n--->",  # 7
-        "When you complete slabs, you'll be given more heat.",
+        "When you complete slabs, the heat will increase.",
         "Slabs will cure faster when the temperature is higher.",
         "If your heat runs out, you're fired.",
         "A score is kept above.",  # 11
@@ -136,10 +144,15 @@ class InstructionsScene(BasicTextScene):
 
     def inc_page(self, change):
         if self.page + change < 0:
+            sounds.play_sound("back")
             self.manager.jump_to_scene(MainMenuScene(underlay=self.underlay))
         elif self.page + change >= len(InstructionsScene.PAGES):
+            global _SAW_INSTRUCTIONS_ONCE
+            _SAW_INSTRUCTIONS_ONCE = True
+            sounds.play_sound("select")
             self.manager.jump_to_scene(self.underlay)  # start game
         else:
+            sounds.play_sound("select")
             self.manager.jump_to_scene(InstructionsScene(page=self.page + change, underlay=self.underlay))
 
     def update(self, dt):
@@ -173,9 +186,12 @@ class NextLevelScene(BasicTextScene):
 
         if len(const.KEYS_PRESSED_THIS_FRAME) > 0 or len(const.MOUSE_PRESSED_AT_THIS_FRAME) > 0:
             if self.elapsed_time > NextLevelScene.DELAY * 0.8:
+                sounds.play_sound("select")
                 self.manager.jump_to_scene(self.underlay)
             elif self.elapsed_time > DELAY:
+                sounds.play_sound("draw_start")
                 self.elapsed_time = NextLevelScene.DELAY * 0.8
+
 
 class GameOverScene(BasicTextScene):
 
@@ -195,6 +211,7 @@ class GameOverScene(BasicTextScene):
         super().update(dt)
         if self.elapsed_time > GameOverScene.DELAY:
             if len(const.KEYS_PRESSED_THIS_FRAME) > 0 or len(const.MOUSE_PRESSED_AT_THIS_FRAME) > 0:
+                sounds.play_sound("select")
                 self.manager.jump_to_scene(MainMenuScene())
 
 
@@ -226,4 +243,5 @@ class YouWinScene(BasicTextScene):
         super().update(dt)
         if self.elapsed_time > GameOverScene.DELAY:
             if len(const.KEYS_PRESSED_THIS_FRAME) > 0 or len(const.MOUSE_PRESSED_AT_THIS_FRAME) > 0:
+                sounds.play_sound("select")
                 self.manager.jump_to_scene(MainMenuScene())
