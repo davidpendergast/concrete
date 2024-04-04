@@ -94,8 +94,7 @@ class MainMenuScene(BasicTextScene):
         if self.elapsed_time > DELAY:
             if pygame.K_ESCAPE in const.KEYS_PRESSED_THIS_FRAME:
                 self.manager.do_quit()
-            elif (len(const.KEYS_PRESSED_THIS_FRAME) > 0 and pygame.K_LEFT not in const.KEYS_PRESSED_THIS_FRAME) \
-                    or len(const.MOUSE_PRESSED_AT_THIS_FRAME) > 0:
+            elif const.clicked_or_any_pressed_this_frame(keys=(pygame.K_SPACE, pygame.K_RETURN, pygame.K_RIGHT, pygame.K_s)):
                 sounds.play_sound("select")
                 if _SAW_INSTRUCTIONS_ONCE or pygame.K_s in const.KEYS_PRESSED_THIS_FRAME:
                     self.manager.jump_to_scene(self.underlay)
@@ -161,7 +160,7 @@ class InstructionsScene(BasicTextScene):
         if self.elapsed_time > DELAY:
             if pygame.K_ESCAPE in const.KEYS_PRESSED_THIS_FRAME or pygame.K_LEFT in const.KEYS_PRESSED_THIS_FRAME:
                 self.inc_page(-1)
-            elif len(const.KEYS_PRESSED_THIS_FRAME) > 0 or len(const.MOUSE_PRESSED_AT_THIS_FRAME) > 0:
+            elif const.clicked_or_any_pressed_this_frame(keys=(pygame.K_SPACE, pygame.K_RETURN, pygame.K_RIGHT)):
                 self.inc_page(1)
 
 
@@ -188,7 +187,7 @@ class NextLevelScene(BasicTextScene):
         super().update(dt)
         self.underlay.gs.update_goals(dt, None)  # want goals to scroll
 
-        if len(const.KEYS_PRESSED_THIS_FRAME) > 0 or len(const.MOUSE_PRESSED_AT_THIS_FRAME) > 0:
+        if const.clicked_or_any_pressed_this_frame():
             if self.elapsed_time > NextLevelScene.DELAY * 0.8:
                 sounds.play_sound("select")
                 self.manager.jump_to_scene(self.underlay)
@@ -199,22 +198,34 @@ class NextLevelScene(BasicTextScene):
 
 class GameOverScene(BasicTextScene):
 
-    DELAY = 750
+    DELAY = 1500
+    FINAL_DELAY = 2000
 
     def __init__(self, text="GAME OVER", underlay: gameplay.GameplayScene = None):
         super().__init__(text, "Click to Continue", underlay=underlay)
 
-    def get_info_color(self):
-        return colors.lerp_color(colors.BLUE_LIGHT, colors.WHITE)
-
     def apply_fader(self, surf, rect='full', alpha='default', color='default'):
-        opac = int(min(1.0, self.elapsed_time / GameOverScene.DELAY) * ALPHA)
-        super().apply_fader(surf, rect=rect, alpha=opac, color=color)
+        if GameOverScene.DELAY <= self.elapsed_time < GameOverScene.FINAL_DELAY:
+            t = min(1.0, max(0.0, (self.elapsed_time - GameOverScene.DELAY) / (GameOverScene.FINAL_DELAY - GameOverScene.DELAY)))
+            super().apply_fader(surf, alpha=int(ALPHA * t))
+        elif GameOverScene.FINAL_DELAY <= self.elapsed_time:
+            super().apply_fader(surf, alpha=ALPHA)
+
+    def get_info_color(self):
+        if self.elapsed_time < GameOverScene.DELAY / 2:
+            return colors.BLACK
+        else:
+            base = colors.lerp_color(colors.BLUE_LIGHT, colors.WHITE)
+            if self.elapsed_time < GameOverScene.DELAY:
+                prog = min(1.0, max(0.0, (self.elapsed_time - GameOverScene.DELAY / 2) / (GameOverScene.DELAY / 2)))
+                return colors.lerp_color(colors.BLACK, base, prog)
+            else:
+                return base
 
     def update(self, dt):
         super().update(dt)
         if self.elapsed_time > GameOverScene.DELAY:
-            if len(const.KEYS_PRESSED_THIS_FRAME) > 0 or len(const.MOUSE_PRESSED_AT_THIS_FRAME) > 0:
+            if const.clicked_or_any_pressed_this_frame():
                 sounds.play_sound("select")
                 self.manager.jump_to_scene(MainMenuScene())
 
@@ -225,7 +236,15 @@ class YouWinScene(BasicTextScene):
         super().__init__("You Win!", "Click to Continue", underlay=underlay)
 
     def get_info_color(self):
-        return colors.lerp_color(colors.BLUE_LIGHT, colors.WHITE)
+        if self.elapsed_time < GameOverScene.DELAY / 2:
+            return colors.BLACK
+        else:
+            base = colors.lerp_color(colors.BLUE_LIGHT, colors.WHITE)
+            if self.elapsed_time < GameOverScene.DELAY:
+                prog = min(1.0, max(0.0, (self.elapsed_time - GameOverScene.DELAY / 2) / (GameOverScene.DELAY / 2)))
+                return colors.lerp_color(colors.BLACK, base, prog)
+            else:
+                return base
 
     def apply_fader(self, surf, rect='full', alpha='default', color='default'):
         pass
@@ -246,6 +265,6 @@ class YouWinScene(BasicTextScene):
     def update(self, dt):
         super().update(dt)
         if self.elapsed_time > GameOverScene.DELAY:
-            if len(const.KEYS_PRESSED_THIS_FRAME) > 0 or len(const.MOUSE_PRESSED_AT_THIS_FRAME) > 0:
+            if const.clicked_or_any_pressed_this_frame():
                 sounds.play_sound("select")
                 self.manager.jump_to_scene(MainMenuScene())
